@@ -29,4 +29,6 @@ jobs:
           node-version: 22
 
       - name: Test browser core
-        run: node web/qrs-core.test.mjs
+        run: |
+          node web/qrs-core.test.mjs
+          node web/acquisition.test.mjs

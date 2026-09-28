@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone
+## Current milestone: v0.1 Optical Acquisition
 
 The Protocol v0 core provides:
 
@@ -22,9 +22,14 @@ The Protocol v0 core provides:
 - Offline recovery after simulated frame loss.
 - A 64×64 optical matrix with phase inversion and orientation markers.
 - Rotation and mirror recovery across all eight grid orientations.
-- A dependency-free static browser transmitter and aligned-camera receiver.
+- A dependency-free static browser transmitter and camera receiver.
+- Automatic outer-frame detection and four-corner tracking.
+- Perspective-corrected cell sampling with temporal corner smoothing.
+- Geometry-aware rejection when the camera moves between differential phases.
+- A manual alignment fallback and expanded acquisition diagnostics.
 
-Automatic perspective correction, SHA-256 implementation, and encryption are not implemented yet.
+SHA-256 implementation, encryption, adaptive grid density, and colour symbols are not implemented
+yet. The colour work is deliberately isolated until acquisition is measured across real devices.
 
 ## Build
 
@@ -63,11 +68,11 @@ Cloudflare Pages or GitHub Pages; camera access normally does not work from a pl
 
 1. Open `send.html` on the display device and select a file below 10 KB for the first test.
 2. Open `receive.html` on the camera device and permit camera access.
-3. Align the exact matrix boundary inside the receiver's green/yellow guide.
+3. Keep the complete white outer frame visible. The green/yellow overlay follows the detected frame.
 4. Start transmission and hold both devices stable until the receiver exposes the download.
 
-The current receiver deliberately uses manual alignment. It is the controlled MVP used to collect
-camera evidence before automatic contour detection and homography are added.
+Automatic tracking is the default. If a device cannot acquire the outer frame, disable it and use
+the alignment-box slider as a controlled fallback.
 
 Follow the complete [two-device test procedure](docs/two-device-test.md) and retain the receiver
 diagnostics from each attempt.
@@ -83,3 +88,6 @@ cmake -S . -B build -DQRS_BUILD_LEGACY=ON
 The current transport specification is documented in
 [`docs/protocol-v0.md`](docs/protocol-v0.md). Protocol v0 is not yet stable and must not be used
 for sensitive data. Frames are currently unencrypted.
+
+The design sources and the separate five-colour research plan are documented in
+[`docs/v0.1-optical-acquisition.md`](docs/v0.1-optical-acquisition.md).

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - codex/qrs-mvp-foundation
+      - codex/qrs-v0.1-optical-acquisition
     paths:
       - web/**
       - .github/workflows/pages.yml

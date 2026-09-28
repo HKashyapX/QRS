@@ -1,7 +1,7 @@
 # QRS Two-Device Optical Test
 
-This procedure validates the controlled browser MVP. It does not validate encryption, automatic
-perspective correction, or hostile lighting performance.
+This procedure validates v0.1 automatic optical acquisition. It does not validate encryption,
+colour symbols, or hostile lighting performance.
 
 ## Equipment
 
@@ -20,22 +20,22 @@ starts only after the baseline succeeds.
 3. Set the sender display brightness to approximately 80–100%.
 4. Open **Receive a file** on the camera device and allow camera access.
 5. Select the rear camera.
-6. Leave alignment at `384 px` and minimum contrast at `24` initially.
+6. Leave **Auto-track outer frame** enabled and minimum contrast at `24` initially.
 7. Open **Send a file** on the display device and select `payload.txt`.
 8. Select `300 ms` phase duration for the first acquisition.
 9. Enter fullscreen matrix mode.
 
-## Alignment
+## Acquisition
 
-The receiver guide must cover the complete outer white square, including its quiet zone. The
-receiver automatically excludes the three-cell margin before sampling the inner 64×64 matrix.
+The receiver detects the complete outer white square, smooths its four corners, and projectively
+maps the inner 64×64 data matrix. The three-cell white margin must remain visible on all four sides.
 
 1. Hold the camera approximately 25–45 cm from the display.
-2. Keep the camera as perpendicular to the display as practical.
-3. Adjust distance and the alignment-box slider until the outer white square sits exactly inside
-   the receiver square.
-4. A green receiver guide and increasing marker-lock count indicate that orientation markers are
-   being recognized.
+2. Point the camera so the complete outer white square is visible; exact alignment is not required.
+3. Move and tilt the camera slowly. The overlay should follow the four frame corners.
+4. A green tracked quadrilateral and increasing marker-lock count indicate successful acquisition.
+5. If automatic detection never locks, disable it and use the alignment slider as a fallback. Record
+   that fallback in the test results.
 
 ## Transmission
 
@@ -54,9 +54,10 @@ receiver completes.
 
 | Observation | Likely cause | Action |
 |---|---|---|
-| Marker locks remain zero | Matrix is outside the sampling square or badly exposed | Adjust distance, alignment-box size, angle, or brightness |
+| Tracked count remains zero | Outer white frame is cropped, too small, or merged into a bright background | Show all four sides, move closer, or place the sender against a darker background |
+| Tracking rises but marker locks remain zero | Detected quadrilateral is not the QRS frame or sampling is distorted | Reduce glare, move closer, or try manual fallback |
 | Only phase A or phase B increases | Camera misses one temporal phase | Increase phase duration to 300 ms |
-| Marker locks rise but valid frames remain zero | Cell centers are misaligned or perspective is excessive | Match the outer white square more carefully and hold perpendicular |
+| Marker locks rise but valid frames remain zero | Sampling is unstable, blurred, or phase timing is mismatched | Move closer, slow the phase duration, and reduce camera motion |
 | Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 20 frames |
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Resolved count rises slowly | High optical erasure rate | Continue transmission; fountain repair symbols can still complete recovery |
@@ -76,9 +77,10 @@ Run tests in this order and stop at the first failure:
 ## Record after each attempt
 
 - Sender device, browser, display brightness, and phase duration.
-- Receiver device, browser, chosen camera, alignment-box size, and contrast threshold.
+- Receiver device, browser, chosen camera, automatic/manual acquisition, and contrast threshold.
 - Approximate distance and angle.
 - Marker locks/failures.
+- Tracked/missed frames and geometry pair rejects.
 - Phase A/B observations.
 - Valid/rejected pairs.
 - Manifest/data frames.

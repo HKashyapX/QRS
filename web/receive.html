@@ -9,10 +9,13 @@
 <body>
   <main>
     <a class="back" href="index.html">← QRS home</a>
-    <div class="eyebrow">Optical receiver</div>
+    <div class="eyebrow">v0.1 · Optical receiver</div>
     <h1>Receive a file</h1>
     <section class="panel">
       <div class="controls">
+        <label class="toggle">Acquisition
+          <span><input id="autoTrack" type="checkbox" checked> Auto-track outer frame</span>
+        </label>
         <label>Camera
           <select id="facingMode">
             <option value="environment">Rear camera</option>
@@ -20,7 +23,7 @@
           </select>
         </label>
         <label>Alignment box <output id="roiValue">384 px</output>
-          <input id="roiSize" type="range" min="256" max="448" step="8" value="384">
+          <input id="roiSize" type="range" min="256" max="448" step="8" value="384" disabled>
         </label>
         <label>Minimum cell contrast <output id="contrastValue">24</output>
           <input id="minimumContrast" type="range" min="12" max="80" step="4" value="24">
@@ -31,7 +34,7 @@
         <button id="stop" class="secondary" disabled>Stop camera</button>
         <button id="reset" class="secondary">Reset transfer</button>
       </div>
-      <div id="status" class="status">Camera permission is required. Align the complete outer white square with the guide.</div>
+      <div id="status" class="status">Camera permission is required. Automatic tracking corrects perspective and normal hand movement.</div>
       <progress id="progress" value="0" max="100"></progress>
       <div class="metrics"><span id="sessionMetric">Waiting for manifest</span><span id="frameMetric">0 valid frames</span><span id="confidenceMetric">No lock</span></div>
       <div class="actions"><a id="download" class="button" hidden>Download recovered file</a></div>
@@ -43,6 +46,6 @@
     <div class="matrix-shell"><canvas id="preview" width="640" height="480" aria-label="Camera preview and QRS alignment guide"></canvas></div>
     <video id="video" class="sr-only-video" playsinline muted></video>
   </main>
-  <script type="module" src="receiver.js?v=quiet-zone-1"></script>
+  <script type="module" src="receiver.js?v=optical-acquisition-1"></script>
 </body>
 </html>
