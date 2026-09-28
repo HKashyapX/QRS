@@ -81,6 +81,9 @@ Run tests in this order and stop at the first failure:
 
 ## Record after each attempt
 
+Expand **Receiver diagnostics** and use **Copy diagnostics** after each run. It includes the browser,
+camera settings, actual camera rate, processing latency, valid logical-frame rate, and ranked errors.
+
 - Sender device, browser, display brightness, and phase duration.
 - Receiver device, browser, chosen camera, automatic/manual acquisition, and contrast threshold.
 - Approximate distance and angle.

@@ -35,6 +35,7 @@ const minimumContrastInput = document.querySelector("#minimumContrast");
 const contrastValue = document.querySelector("#contrastValue");
 const resetButton = document.querySelector("#reset");
 const diagnosticsElement = document.querySelector("#diagnostics");
+const copyDiagnosticsButton = document.querySelector("#copyDiagnostics");
 
 export function opticalCellCenter(cell, roiSize) {
   return Math.floor((cell + QUIET_CELLS + 0.5) * (roiSize / DISPLAY_GRID_SIZE));
@@ -49,6 +50,7 @@ let firstCameraFrameAt = 0;
 let lastCameraFrameAt = 0;
 let processingTotal = 0;
 let processingMaximum = 0;
+let cameraSettings = "not started";
 const phasePairer = new OrderedPhasePairer();
 let activeSession = null;
 let manifest = null;
@@ -67,6 +69,7 @@ const counters = {
   pairRejects: 0,
   manifests: 0,
   dataFrames: 0,
+  uniqueSymbols: 0,
   acquisitions: 0,
   acquisitionMisses: 0,
   geometryRejects: 0,
@@ -167,7 +170,7 @@ function acceptFrame(frame) {
   }
   if (frame.type !== FRAME_TYPE.DATA || frame.sessionId !== activeSession || !decoder) return;
   counters.dataFrames += 1;
-  decoder.add(frame.symbolId, frame.payload);
+  if (decoder.add(frame.symbolId, frame.payload)) counters.uniqueSymbols += 1;
   progress.value = decoder.sourceSymbolCount
     ? Math.min(100, (decoder.resolvedCount / decoder.sourceSymbolCount) * 100)
     : 100;
@@ -224,6 +227,7 @@ function updateDiagnostics() {
   const elapsedSeconds = Math.max(0.001, (lastCameraFrameAt - firstCameraFrameAt) / 1000);
   const observedFps = counters.cameraFrames > 1 ? (counters.cameraFrames - 1) / elapsedSeconds : 0;
   const averageProcessing = counters.cameraFrames ? processingTotal / counters.cameraFrames : 0;
+  const validRate = validFrames / elapsedSeconds;
   const commonErrors = [...errorCounts.entries()]
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
@@ -231,13 +235,15 @@ function updateDiagnostics() {
     .join(" | ") || "none";
   diagnosticsElement.textContent = [
     `camera frames/rate: ${counters.cameraFrames} / ${observedFps.toFixed(1)} fps`,
+    `camera settings: ${cameraSettings}`,
     `duplicate camera callbacks: ${counters.duplicateCallbacks}`,
     `processing avg/max: ${averageProcessing.toFixed(1)} / ${processingMaximum.toFixed(1)} ms`,
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
     `phase A/B observations: ${counters.phaseA}/${counters.phaseB}`,
-    `valid/rejected pairs: ${validFrames}/${counters.pairRejects}`,
+    `valid/rejected pairs: ${validFrames}/${counters.pairRejects} (${validRate.toFixed(2)} valid/s)`,
     `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
+    `unique data symbols: ${counters.uniqueSymbols}`,
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
@@ -309,6 +315,10 @@ cameraButton.addEventListener("click", async () => {
     });
     video.srcObject = stream;
     await video.play();
+    const settings = stream.getVideoTracks()[0]?.getSettings?.() ?? {};
+    cameraSettings = `${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight}`
+      + `${settings.frameRate ? ` @ ${settings.frameRate} fps` : ""}`
+      + `${settings.facingMode ? ` · ${settings.facingMode}` : ""}`;
     running = true;
     cameraButton.disabled = true;
     stopButton.disabled = false;
@@ -351,6 +361,21 @@ function resetTransfer() {
 }
 
 resetButton.addEventListener("click", resetTransfer);
+copyDiagnosticsButton.addEventListener("click", async () => {
+  const report = [
+    "QRS v0.1.1 optical-envelope diagnostics",
+    `captured: ${new Date().toISOString()}`,
+    `browser: ${navigator.userAgent}`,
+    diagnosticsElement.textContent,
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(report);
+    copyDiagnosticsButton.textContent = "Copied";
+    window.setTimeout(() => { copyDiagnosticsButton.textContent = "Copy diagnostics"; }, 1600);
+  } catch (error) {
+    status.textContent = `Could not copy diagnostics: ${error.message}`;
+  }
+});
 roiSizeInput.addEventListener("input", () => {
   roiValue.textContent = `${roiSizeInput.value} px`;
   phasePairer.reset();
