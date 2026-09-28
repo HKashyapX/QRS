@@ -27,13 +27,13 @@ starts only after the baseline succeeds.
 
 ## Alignment
 
-The green outline on the transmitter surrounds the exact 64×64 matrix. The surrounding white area
-is a quiet zone and must remain outside the receiver's alignment square.
+The receiver guide must cover the complete outer white square, including its quiet zone. The
+receiver automatically excludes the three-cell margin before sampling the inner 64×64 matrix.
 
 1. Hold the camera approximately 25–45 cm from the display.
 2. Keep the camera as perpendicular to the display as practical.
-3. Adjust distance and the alignment-box slider until the matrix border sits exactly inside the
-   receiver square.
+3. Adjust distance and the alignment-box slider until the outer white square sits exactly inside
+   the receiver square.
 4. A green receiver guide and increasing marker-lock count indicate that orientation markers are
    being recognized.
 
@@ -56,7 +56,7 @@ receiver completes.
 |---|---|---|
 | Marker locks remain zero | Matrix is outside the sampling square or badly exposed | Adjust distance, alignment-box size, angle, or brightness |
 | Only phase A or phase B increases | Camera misses one temporal phase | Increase phase duration to 300 ms |
-| Marker locks rise but valid frames remain zero | Cell centers are misaligned or perspective is excessive | Match the exact matrix edge more carefully and hold perpendicular |
+| Marker locks rise but valid frames remain zero | Cell centers are misaligned or perspective is excessive | Match the outer white square more carefully and hold perpendicular |
 | Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 20 frames |
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Resolved count rises slowly | High optical erasure rate | Continue transmission; fountain repair symbols can still complete recovery |

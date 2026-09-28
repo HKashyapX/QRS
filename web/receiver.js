@@ -27,6 +27,16 @@ const contrastValue = document.querySelector("#contrastValue");
 const resetButton = document.querySelector("#reset");
 const diagnosticsElement = document.querySelector("#diagnostics");
 
+// The sender draws the 64x64 matrix inside a three-cell quiet zone on every
+// side. The alignment guide encloses that complete 70x70-cell optical symbol,
+// so camera sampling must skip the quiet zone before locating data cells.
+const QUIET_CELLS = 3;
+const DISPLAY_GRID_SIZE = GRID_SIZE + QUIET_CELLS * 2;
+
+export function opticalCellCenter(cell, roiSize) {
+  return Math.floor((cell + QUIET_CELLS + 0.5) * (roiSize / DISPLAY_GRID_SIZE));
+}
+
 let stream = null;
 let running = false;
 let lastProcessed = 0;
@@ -66,11 +76,10 @@ function sampleGrid() {
   const roi = currentRoi();
   const image = context.getImageData(roi.x, roi.y, roi.size, roi.size);
   const cells = new Uint8Array(GRID_SIZE * GRID_SIZE);
-  const step = roi.size / GRID_SIZE;
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
-      const centerX = Math.floor((x + 0.5) * step);
-      const centerY = Math.floor((y + 0.5) * step);
+      const centerX = opticalCellCenter(x, roi.size);
+      const centerY = opticalCellCenter(y, roi.size);
       let sum = 0;
       let samples = 0;
       for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
@@ -96,7 +105,7 @@ function drawGuide(locked = false) {
   context.fillStyle = "#ffffff";
   context.font = "600 15px system-ui";
   context.textAlign = "center";
-  context.fillText("Align the exact matrix edge inside this square", canvas.width / 2, roi.y - 11);
+  context.fillText("Align the outer white square inside this guide", canvas.width / 2, roi.y - 11);
 }
 
 function acceptFrame(frame) {
