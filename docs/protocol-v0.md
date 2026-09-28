@@ -8,7 +8,7 @@ implemented. Automatic grid detection and perspective correction remain experime
 Protocol v0 defines the object manifest, data-frame envelope, session separation, corruption
 detection, and development fountain codec used between the QRS transmitter and receiver.
 
-It does not yet define encryption, camera calibration, final optical marker geometry, or browser
+It does not yet define encryption, camera calibration, a frozen optical marker geometry, or browser
 threading. Reserved identifiers allow those features to be added without changing the base frame.
 
 All multi-byte integers use unsigned big-endian representation.
@@ -137,32 +137,29 @@ The receiver uses peeling propagation, rejects duplicate symbol IDs, and bounds 
 
 ## 8. Optical matrix
 
-Each phase is a 64×64 monochrome cell matrix. Four 7×7 corner markers and the remaining outer
-border cells are reserved. The other 3,700 cells are filled in row-major order, providing 462 full
+Each phase is a 64×64 monochrome cell matrix. Four 9×9 corner anchors and the remaining outer
+border cells are reserved. The other cells are filled in row-major order, providing 448 full
 payload bytes. Unused data cells are zero in phase A.
 
-The four corner marker bitmaps are, in order, top-left, top-right, bottom-left and bottom-right:
-
-```text
-1111111  1111111  1111111  1111111
-1000001  1000001  1011101  1100011
-1011101  1011001  1000101  1010101
-1011101  1001101  1110101  1001001
-1011101  1010011  1000101  1010101
-1000001  1000001  1011101  1100011
-1111111  1111111  1111111  1111111
-```
+Each corner anchor has a one-cell white separator, black outer ring, white inner ring, and unique
+3×3 identifier. In top-left, top-right, bottom-left, bottom-right order the row-major identifiers
+are `000000000`, `111100000`, `110011000`, and `101010100`. Anchor and timing-border cells remain
+unchanged between phases so orientation can be recognized independently of phase polarity.
 
 For reserved outer-border cells not inside a corner marker, phase-A value is one when
 `((3*x + 5*y) mod 7) < 3`, otherwise zero.
 
-Phase B is the bitwise inverse of the complete phase-A matrix, including orientation markers.
-The receiver evaluates all four rotations, mirrored and unmirrored, against both phase polarities.
+Two 16-cell outer-border spans carry the 32-bit phase pilot
+`10110100111001011000101100101110`; the pilot and data cells invert in phase B. The receiver
+evaluates all four rotations, mirrored and unmirrored, against the static anchors, then uses the
+pilot to label the normalized phase.
 After normalization, a data bit is one when its phase-A intensity is greater than its phase-B
 intensity. Cells below the configured difference threshold cause the frame to be erased.
 
-The current browser receiver samples a manually aligned square region. This is sufficient for the
-controlled MVP but is not the final physical receiver.
+The displayed envelope adds a three-cell white quiet zone and a three-cell black guard band around
+the 64×64 matrix. The black guard makes the white boundary observable even when the sender is
+fullscreen. The browser receiver automatically detects that 70×70 white symbol boundary, reuses a
+tracked projective mapping between detector runs, and retains manual alignment as a fallback.
 
 ## 9. Automatic optical-layer boundary
 

@@ -257,6 +257,11 @@ export class OpticalTracker {
     this.misses = 0;
   }
 
+  current() {
+    if (!this.quad) return null;
+    return { quad: this.quad.map((point) => ({ ...point })), confidence: 0.2, stale: true };
+  }
+
   locate(imageData) {
     const detection = detectOpticalQuad(imageData, this.options);
     if (!detection) {

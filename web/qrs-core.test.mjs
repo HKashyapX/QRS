@@ -29,6 +29,18 @@ assert.deepEqual(parsedFrame.payload, originalFrame.payload);
 
 const phaseA = encodeOpticalPhase(originalFrame, false);
 const phaseB = encodeOpticalPhase(originalFrame, true);
+const canonicalA = classifyOptical(phaseA);
+const canonicalB = classifyOptical(phaseB);
+assert.equal(canonicalA.inverted, false, "phase pilot should identify phase A");
+assert.equal(canonicalB.inverted, true, "phase pilot should identify phase B");
+assert.equal(canonicalA.rotation, canonicalB.rotation, "static anchors should give both phases the same orientation");
+assert.equal(canonicalA.mirrored, canonicalB.mirrored, "static anchors should give both phases the same reflection");
+
+const noisyMarkers = phaseA.slice();
+for (const [x, y] of [[3, 3], [60, 3], [3, 60], [60, 60], [1, 20], [62, 40]]) {
+  noisyMarkers[y * 64 + x] = 255 - noisyMarkers[y * 64 + x];
+}
+assert.equal(classifyOptical(noisyMarkers).inverted, false, "a few damaged anchor cells should be tolerated");
 for (let rotation = 0; rotation < 4; rotation += 1) {
   for (const mirrored of [false, true]) {
     const observedA = classifyOptical(transformOpticalMatrix(phaseA, rotation, mirrored));

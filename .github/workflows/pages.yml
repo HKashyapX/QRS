@@ -6,6 +6,7 @@ on:
       - main
       - codex/qrs-mvp-foundation
       - codex/qrs-v0.1-optical-acquisition
+      - codex/qrs-v0.1.1-optical-envelope
     paths:
       - web/**
       - .github/workflows/pages.yml

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Send — QRS</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=optical-envelope-1">
 </head>
 <body>
   <main>
@@ -16,9 +16,13 @@
       <div class="controls">
         <label>Phase duration
           <select id="phaseDuration">
-            <option value="150">150 ms — balanced</option>
+            <option value="100">100 ms — target test</option>
+            <option value="150" selected>150 ms — balanced</option>
             <option value="220">220 ms — easier camera lock</option>
             <option value="300">300 ms — troubleshooting</option>
+            <option value="67">67 ms — 15 Hz display</option>
+            <option value="50">50 ms — 20 Hz display</option>
+            <option value="33">33 ms — 30 Hz display</option>
           </select>
         </label>
       </div>
@@ -30,8 +34,8 @@
       <div id="status" class="status">Choose a file up to 100 KB. Start with 10 KB or less for the first camera test.</div>
       <div class="metrics"><span id="fileMetric">No file</span><span id="symbolMetric">0 symbols</span><span id="phaseMetric">Idle</span></div>
     </section>
-    <div class="matrix-shell"><canvas id="matrix" width="840" height="840" aria-label="Animated QRS optical matrix"></canvas></div>
+    <div class="matrix-shell" id="matrixShell"><canvas id="matrix" width="912" height="912" aria-label="Animated QRS optical matrix"></canvas></div>
   </main>
-  <script type="module" src="sender.js"></script>
+  <script type="module" src="sender.js?v=optical-envelope-1"></script>
 </body>
 </html>

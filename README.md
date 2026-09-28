@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone: v0.1 Optical Acquisition
+## Current milestone: v0.1.1 Optical Envelope
 
 The Protocol v0 core provides:
 
@@ -20,11 +20,13 @@ The Protocol v0 core provides:
 - A deterministic LT-style development codec with systematic symbols.
 - Duplicate-symbol rejection and exact-length recovery.
 - Offline recovery after simulated frame loss.
-- A 64×64 optical matrix with phase inversion and orientation markers.
+- A 64×64 optical matrix with static 9×9 orientation anchors and an explicit phase pilot.
 - Rotation and mirror recovery across all eight grid orientations.
 - A dependency-free static browser transmitter and camera receiver.
 - Automatic outer-frame detection and four-corner tracking.
 - Perspective-corrected cell sampling with temporal corner smoothing.
+- A fullscreen-safe black guard around the detected white symbol boundary.
+- Camera-frame-synchronized processing and tracked-homography reuse.
 - Geometry-aware rejection when the camera moves between differential phases.
 - A manual alignment fallback and expanded acquisition diagnostics.
 
@@ -68,7 +70,8 @@ Cloudflare Pages or GitHub Pages; camera access normally does not work from a pl
 
 1. Open `send.html` on the display device and select a file below 10 KB for the first test.
 2. Open `receive.html` on the camera device and permit camera access.
-3. Keep the complete white outer frame visible. The green/yellow overlay follows the detected frame.
+3. Keep the complete white square and some black surround visible. The green/yellow overlay follows
+   the detected frame.
 4. Start transmission and hold both devices stable until the receiver exposes the download.
 
 Automatic tracking is the default. If a device cannot acquire the outer frame, disable it and use

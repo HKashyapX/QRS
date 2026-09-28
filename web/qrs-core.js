@@ -1,4 +1,8 @@
 export const GRID_SIZE = 64;
+export const QUIET_CELLS = 3;
+export const GUARD_CELLS = 3;
+export const DISPLAY_GRID_SIZE = GRID_SIZE + QUIET_CELLS * 2;
+export const CANVAS_GRID_SIZE = DISPLAY_GRID_SIZE + GUARD_CELLS * 2;
 export const FRAME_HEADER_SIZE = 22;
 export const FRAME_TRAILER_SIZE = 4;
 export const FRAME_TYPE = Object.freeze({ MANIFEST: 1, DATA: 2, END: 3 });
@@ -240,27 +244,50 @@ export class LtDecoder {
   }
 }
 
-const MARKERS = [
-  ["1111111", "1000001", "1011101", "1011101", "1011101", "1000001", "1111111"],
-  ["1111111", "1000001", "1011001", "1001101", "1010011", "1000001", "1111111"],
-  ["1111111", "1011101", "1000101", "1110101", "1000101", "1011101", "1111111"],
-  ["1111111", "1100011", "1010101", "1001001", "1010101", "1100011", "1111111"],
-];
+const MARKER_SIZE = 9;
+const MARKER_CODES = ["000000000", "111100000", "110011000", "101010100"];
+const PHASE_WORD = "10110100111001011000101100101110";
+
+function cornerMarker(x, y) {
+  if (x < MARKER_SIZE && y < MARKER_SIZE) return { index: 0, x, y };
+  if (x >= GRID_SIZE - MARKER_SIZE && y < MARKER_SIZE) {
+    return { index: 1, x: x - (GRID_SIZE - MARKER_SIZE), y };
+  }
+  if (x < MARKER_SIZE && y >= GRID_SIZE - MARKER_SIZE) {
+    return { index: 2, x, y: y - (GRID_SIZE - MARKER_SIZE) };
+  }
+  if (x >= GRID_SIZE - MARKER_SIZE && y >= GRID_SIZE - MARKER_SIZE) {
+    return { index: 3, x: x - (GRID_SIZE - MARKER_SIZE), y: y - (GRID_SIZE - MARKER_SIZE) };
+  }
+  return null;
+}
 
 function inCorner(x, y) {
-  return (x < 7 || x >= GRID_SIZE - 7) && (y < 7 || y >= GRID_SIZE - 7);
+  return cornerMarker(x, y) !== null;
 }
 
 function reservedCell(x, y) {
   return inCorner(x, y) || x === 0 || y === 0 || x === GRID_SIZE - 1 || y === GRID_SIZE - 1;
 }
 
+function phasePilotIndex(x, y) {
+  if (y === 0 && x >= 12 && x < 28) return x - 12;
+  if (y === GRID_SIZE - 1 && x >= 36 && x < 52) return 16 + x - 36;
+  return -1;
+}
+
+function orientationCell(x, y) {
+  return reservedCell(x, y) && phasePilotIndex(x, y) < 0;
+}
+
 function markerBit(x, y) {
-  if (x < 7 && y < 7) return MARKERS[0][y][x] === "1";
-  if (x >= GRID_SIZE - 7 && y < 7) return MARKERS[1][y][x - (GRID_SIZE - 7)] === "1";
-  if (x < 7 && y >= GRID_SIZE - 7) return MARKERS[2][y - (GRID_SIZE - 7)][x] === "1";
-  if (x >= GRID_SIZE - 7 && y >= GRID_SIZE - 7) {
-    return MARKERS[3][y - (GRID_SIZE - 7)][x - (GRID_SIZE - 7)] === "1";
+  const marker = cornerMarker(x, y);
+  if (marker) {
+    // White separator, black outer ring, white inner ring, then a 3x3 ID.
+    if (marker.x === 0 || marker.y === 0 || marker.x === 8 || marker.y === 8) return true;
+    if (marker.x === 1 || marker.y === 1 || marker.x === 7 || marker.y === 7) return false;
+    if (marker.x === 2 || marker.y === 2 || marker.x === 6 || marker.y === 6) return true;
+    return MARKER_CODES[marker.index][(marker.y - 3) * 3 + marker.x - 3] === "1";
   }
   return ((x * 3 + y * 5) % 7) < 3;
 }
@@ -274,11 +301,11 @@ function mapCoordinate(x, y, rotation, mirrored) {
 }
 
 const DATA_COORDINATES = [];
-let RESERVED_COUNT = 0;
+let ORIENTATION_COUNT = 0;
 for (let y = 0; y < GRID_SIZE; y += 1) {
   for (let x = 0; x < GRID_SIZE; x += 1) {
-    if (reservedCell(x, y)) RESERVED_COUNT += 1;
-    else DATA_COORDINATES.push([x, y]);
+    if (!reservedCell(x, y)) DATA_COORDINATES.push([x, y]);
+    if (orientationCell(x, y)) ORIENTATION_COUNT += 1;
   }
 }
 
@@ -297,9 +324,17 @@ export function encodeOpticalPhase(frame, inverted = false) {
     const value = bit < bytes.length * 8
       ? (bytes[Math.floor(bit / 8)] >> (7 - (bit % 8))) & 1
       : 0;
-    cells[y * GRID_SIZE + x] = value ? 255 : 0;
+    const transmitted = inverted ? !value : value;
+    cells[y * GRID_SIZE + x] = transmitted ? 255 : 0;
   });
-  if (inverted) for (let i = 0; i < cells.length; i += 1) cells[i] = 255 - cells[i];
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
+      const pilot = phasePilotIndex(x, y);
+      if (pilot < 0) continue;
+      const value = PHASE_WORD[pilot] === "1";
+      cells[y * GRID_SIZE + x] = (value !== inverted) ? 255 : 0;
+    }
+  }
   return cells;
 }
 
@@ -315,29 +350,42 @@ export function transformOpticalMatrix(canonical, rotation = 0, mirrored = false
 }
 
 export function classifyOptical(cells) {
-  let minimum = 255;
-  let maximum = 0;
-  for (const value of cells) { minimum = Math.min(minimum, value); maximum = Math.max(maximum, value); }
-  if (maximum - minimum < 40) throw new Error("Insufficient optical contrast");
-  const threshold = (minimum + maximum) / 2;
   let best = null;
   for (let rotation = 0; rotation < 4; rotation += 1) {
     for (const mirrored of [false, true]) {
-      for (const inverted of [false, true]) {
-        let errors = 0;
-        for (let y = 0; y < GRID_SIZE; y += 1) {
-          for (let x = 0; x < GRID_SIZE; x += 1) {
-            if (!reservedCell(x, y)) continue;
-            const [observedX, observedY] = mapCoordinate(x, y, rotation, mirrored);
-            const actual = cells[observedY * GRID_SIZE + observedX] >= threshold;
-            if (actual !== (markerBit(x, y) !== inverted)) errors += 1;
-          }
+      let whiteSum = 0;
+      let blackSum = 0;
+      let whiteCount = 0;
+      let blackCount = 0;
+      for (let y = 0; y < GRID_SIZE; y += 1) {
+        for (let x = 0; x < GRID_SIZE; x += 1) {
+          if (!orientationCell(x, y)) continue;
+          const [observedX, observedY] = mapCoordinate(x, y, rotation, mirrored);
+          const value = cells[observedY * GRID_SIZE + observedX];
+          if (markerBit(x, y)) { whiteSum += value; whiteCount += 1; }
+          else { blackSum += value; blackCount += 1; }
         }
-        if (!best || errors < best.errors) best = { rotation, mirrored, inverted, errors };
+      }
+      const whiteMean = whiteSum / whiteCount;
+      const blackMean = blackSum / blackCount;
+      const threshold = (whiteMean + blackMean) / 2;
+      let errors = 0;
+      for (let y = 0; y < GRID_SIZE; y += 1) {
+        for (let x = 0; x < GRID_SIZE; x += 1) {
+          if (!orientationCell(x, y)) continue;
+          const [observedX, observedY] = mapCoordinate(x, y, rotation, mirrored);
+          const actual = cells[observedY * GRID_SIZE + observedX] >= threshold;
+          if (actual !== markerBit(x, y)) errors += 1;
+        }
+      }
+      const contrast = whiteMean - blackMean;
+      if (!best || errors < best.errors || (errors === best.errors && contrast > best.contrast)) {
+        best = { rotation, mirrored, errors, contrast, threshold };
       }
     }
   }
-  if (best.errors > RESERVED_COUNT / 5) throw new Error("Orientation markers were not recognized");
+  if (best.contrast < 28) throw new Error("Orientation marker contrast is too low");
+  if (best.errors > ORIENTATION_COUNT / 4) throw new Error("Orientation markers were not recognized");
   const normalized = new Uint8Array(cells.length);
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
@@ -345,7 +393,22 @@ export function classifyOptical(cells) {
       normalized[y * GRID_SIZE + x] = cells[observedY * GRID_SIZE + observedX];
     }
   }
-  return { ...best, normalized, contrast: maximum - minimum };
+  let phaseAErrors = 0;
+  let phaseBErrors = 0;
+  for (let y = 0; y < GRID_SIZE; y += 1) {
+    for (let x = 0; x < GRID_SIZE; x += 1) {
+      const pilot = phasePilotIndex(x, y);
+      if (pilot < 0) continue;
+      const actual = normalized[y * GRID_SIZE + x] >= best.threshold;
+      const expectedA = PHASE_WORD[pilot] === "1";
+      if (actual !== expectedA) phaseAErrors += 1;
+      if (actual === expectedA) phaseBErrors += 1;
+    }
+  }
+  const inverted = phaseBErrors < phaseAErrors;
+  const phaseErrors = Math.min(phaseAErrors, phaseBErrors);
+  if (phaseErrors > PHASE_WORD.length / 3) throw new Error("Optical phase pilot was not recognized");
+  return { ...best, inverted, phaseErrors, normalized, contrast: Math.round(best.contrast) };
 }
 
 export function decodeOpticalPair(firstClassification, secondClassification, minimumContrast = 32) {
@@ -370,20 +433,21 @@ export function decodeOpticalPair(firstClassification, secondClassification, min
 
 export function drawOpticalMatrix(canvas, cells) {
   const context = canvas.getContext("2d", { alpha: false });
-  const quietCells = 3;
-  const cellSize = Math.floor(canvas.width / (GRID_SIZE + quietCells * 2));
-  const matrixSize = cellSize * GRID_SIZE;
-  const originX = Math.floor((canvas.width - matrixSize) / 2);
-  const originY = Math.floor((canvas.height - matrixSize) / 2);
-  context.fillStyle = "#ffffff";
+  const cellSize = Math.floor(canvas.width / CANVAS_GRID_SIZE);
+  const canvasGridPixels = cellSize * CANVAS_GRID_SIZE;
+  const canvasOrigin = Math.floor((canvas.width - canvasGridPixels) / 2);
+  const whiteOrigin = canvasOrigin + GUARD_CELLS * cellSize;
+  const whiteSize = DISPLAY_GRID_SIZE * cellSize;
+  const originX = whiteOrigin + QUIET_CELLS * cellSize;
+  const originY = whiteOrigin + QUIET_CELLS * cellSize;
+  context.fillStyle = "#000000";
   context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#ffffff";
+  context.fillRect(whiteOrigin, whiteOrigin, whiteSize, whiteSize);
   for (let y = 0; y < GRID_SIZE; y += 1) {
     for (let x = 0; x < GRID_SIZE; x += 1) {
       context.fillStyle = cells[y * GRID_SIZE + x] >= 128 ? "#ffffff" : "#000000";
       context.fillRect(originX + x * cellSize, originY + y * cellSize, cellSize, cellSize);
     }
   }
-  context.strokeStyle = "#6ee7b7";
-  context.lineWidth = 2;
-  context.strokeRect(originX - 1, originY - 1, matrixSize + 2, matrixSize + 2);
 }

@@ -66,6 +66,7 @@ assert.deepEqual([...samplePerspectiveGrid(fourCells, [
 
 const tracker = new OpticalTracker({ smoothing: 0.5, maxMisses: 1 });
 assert.ok(tracker.locate(frame));
+assert.deepEqual(tracker.current().quad, tracker.current().quad, "current track should be reusable between detections");
 assert.ok(tracker.locate(image(320, 240)), "one missed frame should use the tracked quad");
 assert.equal(tracker.locate(image(320, 240)), null, "tracker should force reacquisition after its miss budget");
 

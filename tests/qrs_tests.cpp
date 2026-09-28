@@ -122,6 +122,12 @@ void test_optical_phase_and_orientation_recovery() {
 
     const auto phase_a = qrs::encode_optical_phase(original, false);
     const auto phase_b = qrs::encode_optical_phase(original, true);
+    require(phase_a.at(1, 1) == phase_b.at(1, 1),
+            "orientation anchors must remain static between phases");
+    require(phase_a.at(12, 0) != phase_b.at(12, 0),
+            "phase pilot must invert between phases");
+    require(phase_a.at(9, 1) != phase_b.at(9, 1),
+            "data cells must invert between phases");
     for (std::uint8_t rotation = 0; rotation < 4; ++rotation) {
         for (const bool mirrored : {false, true}) {
             const qrs::OpticalTransform transform{rotation, mirrored};
@@ -140,9 +146,9 @@ void test_optical_corruption_rejection() {
                               std::vector<std::uint8_t>(64, 0xa5)};
     auto phase_a = qrs::encode_optical_phase(original, false);
     auto phase_b = qrs::encode_optical_phase(original, true);
-    // (7,1) is the first non-reserved data cell in row-major order.
-    phase_a.at(7, 1) = static_cast<std::uint8_t>(255U - phase_a.at(7, 1));
-    phase_b.at(7, 1) = static_cast<std::uint8_t>(255U - phase_b.at(7, 1));
+    // (9,1) is the first non-reserved data cell in row-major order.
+    phase_a.at(9, 1) = static_cast<std::uint8_t>(255U - phase_a.at(9, 1));
+    phase_b.at(9, 1) = static_cast<std::uint8_t>(255U - phase_b.at(9, 1));
     require_throws<qrs::FrameError>(
         [&] { static_cast<void>(qrs::decode_optical_pair(phase_a, phase_b)); },
         "optically corrupted frame passed CRC validation");

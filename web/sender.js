@@ -8,7 +8,7 @@ import {
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js";
+} from "./qrs-core.js?v=optical-envelope-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");
@@ -20,13 +20,14 @@ const fileMetric = document.querySelector("#fileMetric");
 const symbolMetric = document.querySelector("#symbolMetric");
 const phaseMetric = document.querySelector("#phaseMetric");
 const phaseDurationInput = document.querySelector("#phaseDuration");
+const matrixShell = document.querySelector(".matrix-shell");
 
 const MAX_FILE_SIZE = 100 * 1024;
 const SYMBOL_SIZE = 256;
 
 let selectedFile = null;
 let running = false;
-let timer = null;
+let animationFrame = null;
 
 function blankMatrix() {
   const context = canvas.getContext("2d");
@@ -82,11 +83,20 @@ startButton.addEventListener("click", async () => {
   let logicalFrameNumber = 0;
   let inverted = false;
   let currentFrame = manifestFrame;
+  let nextPhaseAt = performance.now();
+  let phaseCount = 0;
+  const startedAt = nextPhaseAt;
 
-  const tick = () => {
+  const tick = (now) => {
     if (!running) return;
+    if (now + 0.5 < nextPhaseAt) {
+      animationFrame = requestAnimationFrame(tick);
+      return;
+    }
     drawOpticalMatrix(canvas, encodeOpticalPhase(currentFrame, inverted));
-    phaseMetric.textContent = inverted ? "Phase B" : "Phase A";
+    phaseCount += 1;
+    const phaseRate = phaseCount > 1 ? (phaseCount - 1) / Math.max(0.001, (now - startedAt) / 1000) : 0;
+    phaseMetric.textContent = `${inverted ? "Phase B" : "Phase A"} · ${phaseRate.toFixed(1)} phases/s`;
     symbolMetric.textContent = `${dataSymbolId.toLocaleString()} data symbols generated`;
 
     if (inverted) {
@@ -105,15 +115,18 @@ startButton.addEventListener("click", async () => {
       }
     }
     inverted = !inverted;
-    timer = window.setTimeout(tick, Number(phaseDurationInput.value));
+    const duration = Number(phaseDurationInput.value);
+    nextPhaseAt += duration;
+    if (now - nextPhaseAt > duration) nextPhaseAt = now + duration;
+    animationFrame = requestAnimationFrame(tick);
   };
-  tick();
+  animationFrame = requestAnimationFrame(tick);
 });
 
 stopButton.addEventListener("click", () => {
   running = false;
-  if (timer) window.clearTimeout(timer);
-  timer = null;
+  if (animationFrame) cancelAnimationFrame(animationFrame);
+  animationFrame = null;
   stopButton.disabled = true;
   startButton.disabled = !selectedFile;
   fullscreenButton.disabled = true;
@@ -122,7 +135,7 @@ stopButton.addEventListener("click", () => {
 });
 
 fullscreenButton.addEventListener("click", async () => {
-  if (canvas.requestFullscreen) await canvas.requestFullscreen();
+  if (matrixShell.requestFullscreen) await matrixShell.requestFullscreen();
 });
 
 blankMatrix();

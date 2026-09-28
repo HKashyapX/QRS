@@ -1,18 +1,20 @@
 import {
   FEC_CODEC,
   FRAME_TYPE,
+  DISPLAY_GRID_SIZE,
   GRID_SIZE,
+  QUIET_CELLS,
   LtDecoder,
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js";
+} from "./qrs-core.js?v=optical-envelope-1";
 import {
   OpticalTracker,
   OrderedPhasePairer,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js";
+} from "./acquisition.js?v=optical-envelope-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -34,19 +36,19 @@ const contrastValue = document.querySelector("#contrastValue");
 const resetButton = document.querySelector("#reset");
 const diagnosticsElement = document.querySelector("#diagnostics");
 
-// The sender draws the 64x64 matrix inside a three-cell quiet zone on every
-// side. The alignment guide encloses that complete 70x70-cell optical symbol,
-// so camera sampling must skip the quiet zone before locating data cells.
-const QUIET_CELLS = 3;
-const DISPLAY_GRID_SIZE = GRID_SIZE + QUIET_CELLS * 2;
-
 export function opticalCellCenter(cell, roiSize) {
   return Math.floor((cell + QUIET_CELLS + 0.5) * (roiSize / DISPLAY_GRID_SIZE));
 }
 
 let stream = null;
 let running = false;
-let lastProcessed = 0;
+let frameCallback = null;
+let lastPresentedFrame = -1;
+let lastDetectionAt = -Infinity;
+let firstCameraFrameAt = 0;
+let lastCameraFrameAt = 0;
+let processingTotal = 0;
+let processingMaximum = 0;
 const phasePairer = new OrderedPhasePairer();
 let activeSession = null;
 let manifest = null;
@@ -69,8 +71,14 @@ const counters = {
   acquisitionMisses: 0,
   geometryRejects: 0,
   orphanPhaseB: 0,
+  cameraFrames: 0,
+  duplicateCallbacks: 0,
+  detectionRuns: 0,
+  reusedTracks: 0,
 };
+const errorCounts = new Map();
 let lastDiagnosticError = "none";
+const DETECTION_INTERVAL_MS = 100;
 
 function currentRoi() {
   const size = Number(roiSizeInput.value);
@@ -94,13 +102,20 @@ function drawVideoCover() {
   context.drawImage(video, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
 }
 
-function acquireGrid() {
+function acquireGrid(now) {
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
   if (!autoTrackInput.checked) {
     const quad = manualQuad();
     return { cells: samplePerspectiveGrid(image, quad, GRID_SIZE, QUIET_CELLS), quad, confidence: 1, stale: false };
   }
-  const acquisition = tracker.locate(image);
+  let acquisition = tracker.current();
+  if (!acquisition || now - lastDetectionAt >= DETECTION_INTERVAL_MS) {
+    counters.detectionRuns += 1;
+    lastDetectionAt = now;
+    acquisition = tracker.locate(image);
+  } else {
+    counters.reusedTracks += 1;
+  }
   if (!acquisition) {
     counters.acquisitionMisses += 1;
     throw new Error("Optical frame not found");
@@ -128,8 +143,8 @@ function drawGuide(locked = false, quad = null) {
   context.font = "600 15px system-ui";
   context.textAlign = "center";
   const message = autoTrackInput.checked
-    ? (quad ? "Optical frame tracked — normal hand movement is okay" : "Point the camera at the complete white outer frame")
-    : "Manual fallback: align the outer white frame inside this guide";
+    ? (quad ? "Optical frame tracked — normal hand movement is okay" : "Show the complete white square and black surround")
+    : "Manual fallback: align the outer white square inside this guide";
   context.fillText(message, canvas.width / 2, top - 11);
 }
 
@@ -200,15 +215,24 @@ function processOpticalGrid(cells, acquisition) {
     lastDiagnosticError = "none";
   } catch (error) {
     counters.pairRejects += 1;
-    lastDiagnosticError = error.message;
-    // A phase from the previous logical frame commonly pairs with the next frame first.
-    // CRC validation rejects that transient mismatch.
+    recordError(error);
   }
   return true;
 }
 
 function updateDiagnostics() {
+  const elapsedSeconds = Math.max(0.001, (lastCameraFrameAt - firstCameraFrameAt) / 1000);
+  const observedFps = counters.cameraFrames > 1 ? (counters.cameraFrames - 1) / elapsedSeconds : 0;
+  const averageProcessing = counters.cameraFrames ? processingTotal / counters.cameraFrames : 0;
+  const commonErrors = [...errorCounts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 4)
+    .map(([message, count]) => `${count}× ${message}`)
+    .join(" | ") || "none";
   diagnosticsElement.textContent = [
+    `camera frames/rate: ${counters.cameraFrames} / ${observedFps.toFixed(1)} fps`,
+    `duplicate camera callbacks: ${counters.duplicateCallbacks}`,
+    `processing avg/max: ${averageProcessing.toFixed(1)} / ${processingMaximum.toFixed(1)} ms`,
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
     `phase A/B observations: ${counters.phaseA}/${counters.phaseB}`,
@@ -217,35 +241,64 @@ function updateDiagnostics() {
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
+    `detections/reused tracks: ${counters.detectionRuns}/${counters.reusedTracks}`,
     `geometry pair rejects: ${counters.geometryRejects}`,
     `orphan phase B drops: ${counters.orphanPhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
     `last pair error: ${lastDiagnosticError}`,
+    `top errors: ${commonErrors}`,
   ].join("\n");
 }
 
-function render(now) {
+function recordError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  lastDiagnosticError = message;
+  errorCounts.set(message, (errorCounts.get(message) ?? 0) + 1);
+}
+
+function scheduleVideoFrame() {
   if (!running) return;
+  if (typeof video.requestVideoFrameCallback === "function") {
+    frameCallback = video.requestVideoFrameCallback(processVideoFrame);
+  } else {
+    frameCallback = requestAnimationFrame((now) => processVideoFrame(now, {}));
+  }
+}
+
+function processVideoFrame(now, metadata) {
+  if (!running) return;
+  if (metadata.presentedFrames !== undefined && metadata.presentedFrames === lastPresentedFrame) {
+    counters.duplicateCallbacks += 1;
+    scheduleVideoFrame();
+    return;
+  }
+  if (metadata.presentedFrames !== undefined) lastPresentedFrame = metadata.presentedFrames;
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    const processingStart = performance.now();
+    counters.cameraFrames += 1;
+    if (!firstCameraFrameAt) firstCameraFrameAt = now;
+    lastCameraFrameAt = now;
     drawVideoCover();
-    if (now - lastProcessed >= 75) {
-      lastProcessed = now;
-      try {
-        const acquisition = acquireGrid();
-        activeQuad = acquisition.quad;
-        processOpticalGrid(acquisition.cells, acquisition);
-      } catch (error) {
-        markerLocked = false;
-        activeQuad = null;
-        counters.markerFailures += 1;
-        lastDiagnosticError = error.message;
-        confidenceMetric.textContent = "No marker lock";
-      }
-      updateDiagnostics();
+    try {
+      const acquisition = acquireGrid(now);
+      activeQuad = acquisition.quad;
+      processOpticalGrid(acquisition.cells, acquisition);
+    } catch (error) {
+      markerLocked = false;
+      counters.markerFailures += 1;
+      recordError(error);
+      confidenceMetric.textContent = "No marker lock";
+      // A bad classification often means the geometry drifted. Re-run the
+      // detector on the next camera frame instead of trusting the stale quad.
+      if (/orientation|frame not found/i.test(lastDiagnosticError)) lastDetectionAt = -Infinity;
     }
     drawGuide(markerLocked, activeQuad);
+    const processingTime = performance.now() - processingStart;
+    processingTotal += processingTime;
+    processingMaximum = Math.max(processingMaximum, processingTime);
+    updateDiagnostics();
   }
-  requestAnimationFrame(render);
+  scheduleVideoFrame();
 }
 
 cameraButton.addEventListener("click", async () => {
@@ -259,8 +312,8 @@ cameraButton.addEventListener("click", async () => {
     running = true;
     cameraButton.disabled = true;
     stopButton.disabled = false;
-    status.textContent = "Camera active. Keep the complete white outer frame visible; tracking handles perspective and hand movement.";
-    requestAnimationFrame(render);
+    status.textContent = "Camera active. Keep the complete white square and some black surround visible; tracking handles perspective and hand movement.";
+    scheduleVideoFrame();
   } catch (error) {
     status.textContent = `Camera could not start: ${error.message}`;
   }
@@ -275,6 +328,13 @@ function resetTransfer() {
   markerLocked = false;
   activeQuad = null;
   tracker.reset();
+  errorCounts.clear();
+  lastPresentedFrame = -1;
+  lastDetectionAt = -Infinity;
+  firstCameraFrameAt = 0;
+  lastCameraFrameAt = 0;
+  processingTotal = 0;
+  processingMaximum = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
   lastDiagnosticError = "none";
   progress.value = 0;
@@ -301,8 +361,8 @@ autoTrackInput.addEventListener("change", () => {
   activeQuad = null;
   phasePairer.reset();
   status.textContent = autoTrackInput.checked
-    ? "Automatic tracking enabled. Keep the complete white outer frame in view."
-    : "Manual fallback enabled. Align the outer frame inside the guide.";
+    ? "Automatic tracking enabled. Keep the complete white square and black surround in view."
+    : "Manual fallback enabled. Align the outer white square inside the guide.";
 });
 minimumContrastInput.addEventListener("input", () => {
   contrastValue.textContent = minimumContrastInput.value;
@@ -310,6 +370,11 @@ minimumContrastInput.addEventListener("input", () => {
 
 stopButton.addEventListener("click", () => {
   running = false;
+  if (frameCallback !== null) {
+    if (typeof video.cancelVideoFrameCallback === "function") video.cancelVideoFrameCallback(frameCallback);
+    else cancelAnimationFrame(frameCallback);
+  }
+  frameCallback = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   video.srcObject = null;
