@@ -1,0 +1,6 @@
+/build/
+/cmake-build-*/
+/recovered_payload.txt
+*.o
+*.obj
+*.exe

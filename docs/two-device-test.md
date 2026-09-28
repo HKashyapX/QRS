@@ -1,0 +1,89 @@
+# QRS Two-Device Optical Test
+
+This procedure validates the controlled browser MVP. It does not validate encryption, automatic
+perspective correction, or hostile lighting performance.
+
+## Equipment
+
+- Display device: laptop or tablet running the QRS sender.
+- Camera device: phone or laptop running the QRS receiver.
+- A small non-sensitive test file. Start with `payload.txt` from this repository.
+- Stable indoor lighting without direct reflections on the transmitting display.
+
+Both devices should use a current Chromium-based browser for the first test. Cross-browser testing
+starts only after the baseline succeeds.
+
+## Preparation
+
+1. Open the HTTPS QRS deployment on both devices.
+2. Keep browser zoom at 100%.
+3. Set the sender display brightness to approximately 80–100%.
+4. Open **Receive a file** on the camera device and allow camera access.
+5. Select the rear camera.
+6. Leave alignment at `384 px` and minimum contrast at `24` initially.
+7. Open **Send a file** on the display device and select `payload.txt`.
+8. Select `300 ms` phase duration for the first acquisition.
+9. Enter fullscreen matrix mode.
+
+## Alignment
+
+The green outline on the transmitter surrounds the exact 64×64 matrix. The surrounding white area
+is a quiet zone and must remain outside the receiver's alignment square.
+
+1. Hold the camera approximately 25–45 cm from the display.
+2. Keep the camera as perpendicular to the display as practical.
+3. Adjust distance and the alignment-box slider until the matrix border sits exactly inside the
+   receiver square.
+4. A green receiver guide and increasing marker-lock count indicate that orientation markers are
+   being recognized.
+
+## Transmission
+
+1. Start the receiver camera first.
+2. Start transmission on the sender.
+3. Hold both devices stable.
+4. Wait for **Manifest locked**.
+5. Confirm that `resolved symbols` begins increasing in diagnostics.
+6. When **Transfer complete** appears, download the recovered file.
+7. Compare its contents with the original.
+
+The transmitter continues because QRS has no acknowledgement channel. Stop it manually after the
+receiver completes.
+
+## Diagnostic interpretation
+
+| Observation | Likely cause | Action |
+|---|---|---|
+| Marker locks remain zero | Matrix is outside the sampling square or badly exposed | Adjust distance, alignment-box size, angle, or brightness |
+| Only phase A or phase B increases | Camera misses one temporal phase | Increase phase duration to 300 ms |
+| Marker locks rise but valid frames remain zero | Cell centers are misaligned or perspective is excessive | Match the exact matrix edge more carefully and hold perpendicular |
+| Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 20 frames |
+| Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
+| Resolved count rises slowly | High optical erasure rate | Continue transmission; fountain repair symbols can still complete recovery |
+| Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and try a slower phase duration |
+
+## Test ladder
+
+Run tests in this order and stop at the first failure:
+
+1. Existing 23-byte `payload.txt` at 300 ms.
+2. A 1 KB text file at 300 ms.
+3. A 10 KB image or binary file at 220 ms.
+4. Repeat 10 KB at 150 ms.
+5. Change distance and camera angle.
+6. Repeat using Firefox after Chromium succeeds.
+
+## Record after each attempt
+
+- Sender device, browser, display brightness, and phase duration.
+- Receiver device, browser, chosen camera, alignment-box size, and contrast threshold.
+- Approximate distance and angle.
+- Marker locks/failures.
+- Phase A/B observations.
+- Valid/rejected pairs.
+- Manifest/data frames.
+- Resolved symbols and total symbols.
+- Whether the downloaded bytes matched the original.
+
+These measurements determine whether the next work belongs in timing, marker detection, sampling,
+or automatic homography.

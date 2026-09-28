@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Send — QRS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <a class="back" href="index.html">← QRS home</a>
+    <div class="eyebrow">Optical transmitter</div>
+    <h1>Send a file</h1>
+    <section class="panel">
+      <input id="file" type="file">
+      <div class="controls">
+        <label>Phase duration
+          <select id="phaseDuration">
+            <option value="150">150 ms — balanced</option>
+            <option value="220">220 ms — easier camera lock</option>
+            <option value="300">300 ms — troubleshooting</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button id="start" disabled>Start transmission</button>
+        <button id="stop" class="secondary" disabled>Stop</button>
+        <button id="fullscreen" class="secondary" disabled>Fullscreen matrix</button>
+      </div>
+      <div id="status" class="status">Choose a file up to 100 KB. Start with 10 KB or less for the first camera test.</div>
+      <div class="metrics"><span id="fileMetric">No file</span><span id="symbolMetric">0 symbols</span><span id="phaseMetric">Idle</span></div>
+    </section>
+    <div class="matrix-shell"><canvas id="matrix" width="840" height="840" aria-label="Animated QRS optical matrix"></canvas></div>
+  </main>
+  <script type="module" src="sender.js"></script>
+</body>
+</html>
