@@ -9,6 +9,7 @@ import {
 } from "./qrs-core.js";
 import {
   OpticalTracker,
+  OrderedPhasePairer,
   quadMotion,
   samplePerspectiveGrid,
 } from "./acquisition.js";
@@ -46,8 +47,7 @@ export function opticalCellCenter(cell, roiSize) {
 let stream = null;
 let running = false;
 let lastProcessed = 0;
-let phaseA = null;
-let phaseB = null;
+const phasePairer = new OrderedPhasePairer();
 let activeSession = null;
 let manifest = null;
 let decoder = null;
@@ -68,6 +68,7 @@ const counters = {
   acquisitions: 0,
   acquisitionMisses: 0,
   geometryRejects: 0,
+  orphanPhaseB: 0,
 };
 let lastDiagnosticError = "none";
 
@@ -172,20 +173,22 @@ function processOpticalGrid(cells, acquisition) {
   markerLocked = true;
   counters.markerLocks += 1;
   confidenceMetric.textContent = `Marker errors ${classification.errors} · contrast ${classification.contrast}`;
-  if (classification.inverted) {
-    phaseB = { classification, quad: acquisition.quad, capturedAt: performance.now() };
-    counters.phaseB += 1;
-  } else {
-    phaseA = { classification, quad: acquisition.quad, capturedAt: performance.now() };
-    counters.phaseA += 1;
+  if (classification.inverted) counters.phaseB += 1;
+  else counters.phaseA += 1;
+  const pairing = phasePairer.push(classification, {
+    quad: acquisition.quad,
+    capturedAt: performance.now(),
+  });
+  if (pairing.status === "orphan") {
+    counters.orphanPhaseB += 1;
+    return false;
   }
-  if (!phaseA || !phaseB) return true;
+  if (!pairing.pair) return true;
+  const [phaseA, phaseB] = pairing.pair;
 
   if (quadMotion(phaseA.quad, phaseB.quad) > 0.055) {
     counters.geometryRejects += 1;
     lastDiagnosticError = "Camera moved between differential phases";
-    if (phaseA.capturedAt < phaseB.capturedAt) phaseA = null;
-    else phaseB = null;
     return false;
   }
 
@@ -215,6 +218,7 @@ function updateDiagnostics() {
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
     `geometry pair rejects: ${counters.geometryRejects}`,
+    `orphan phase B drops: ${counters.orphanPhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
     `last pair error: ${lastDiagnosticError}`,
   ].join("\n");
@@ -263,8 +267,7 @@ cameraButton.addEventListener("click", async () => {
 });
 
 function resetTransfer() {
-  phaseA = null;
-  phaseB = null;
+  phasePairer.reset();
   activeSession = null;
   manifest = null;
   decoder = null;
@@ -290,15 +293,13 @@ function resetTransfer() {
 resetButton.addEventListener("click", resetTransfer);
 roiSizeInput.addEventListener("input", () => {
   roiValue.textContent = `${roiSizeInput.value} px`;
-  phaseA = null;
-  phaseB = null;
+  phasePairer.reset();
 });
 autoTrackInput.addEventListener("change", () => {
   roiSizeInput.disabled = autoTrackInput.checked;
   tracker.reset();
   activeQuad = null;
-  phaseA = null;
-  phaseB = null;
+  phasePairer.reset();
   status.textContent = autoTrackInput.checked
     ? "Automatic tracking enabled. Keep the complete white outer frame in view."
     : "Manual fallback enabled. Align the outer frame inside the guide.";

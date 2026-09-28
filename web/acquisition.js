@@ -219,6 +219,32 @@ export function quadMotion(previous, current) {
   return previous.reduce((sum, point, index) => sum + distance(point, current[index]), 0) / (4 * scale);
 }
 
+// The transmitter emits phase A and then its inverse, phase B. Treating the
+// stream as two independent "latest phase" slots causes B(n) to be paired with
+// A(n+1) once per logical frame. This small state machine only emits ordered,
+// adjacent A -> B pairs and discards orphaned B observations.
+export class OrderedPhasePairer {
+  constructor() {
+    this.pendingA = null;
+  }
+
+  reset() {
+    this.pendingA = null;
+  }
+
+  push(classification, metadata = {}) {
+    const observation = { classification, ...metadata };
+    if (!classification.inverted) {
+      this.pendingA = observation;
+      return { status: "armed", pair: null };
+    }
+    if (!this.pendingA) return { status: "orphan", pair: null };
+    const pair = [this.pendingA, observation];
+    this.pendingA = null;
+    return { status: "paired", pair };
+  }
+}
+
 export class OpticalTracker {
   constructor(options = {}) {
     this.options = { ...DEFAULTS, ...options };

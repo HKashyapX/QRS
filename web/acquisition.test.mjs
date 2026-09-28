@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  OrderedPhasePairer,
   OpticalTracker,
   detectOpticalQuad,
   projectPoint,
@@ -67,6 +68,18 @@ const tracker = new OpticalTracker({ smoothing: 0.5, maxMisses: 1 });
 assert.ok(tracker.locate(frame));
 assert.ok(tracker.locate(image(320, 240)), "one missed frame should use the tracked quad");
 assert.equal(tracker.locate(image(320, 240)), null, "tracker should force reacquisition after its miss budget");
+
+const pairer = new OrderedPhasePairer();
+const phaseA0 = { inverted: false, id: "A0" };
+const phaseB0 = { inverted: true, id: "B0" };
+const phaseA1 = { inverted: false, id: "A1" };
+const phaseB1 = { inverted: true, id: "B1" };
+assert.equal(pairer.push(phaseB0).status, "orphan");
+assert.equal(pairer.push(phaseA0).status, "armed");
+assert.deepEqual(pairer.push(phaseB0).pair.map((item) => item.classification.id), ["A0", "B0"]);
+assert.equal(pairer.push(phaseA0).status, "armed");
+assert.equal(pairer.push(phaseA1).status, "armed", "a newer A replaces an A whose B was missed");
+assert.deepEqual(pairer.push(phaseB1).pair.map((item) => item.classification.id), ["A1", "B1"]);
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
