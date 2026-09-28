@@ -66,9 +66,15 @@ function downsampleLuminance(imageData, target) {
 }
 
 function componentQuad(points, stride) {
-  const scaled = points.map((point) => ({
-    x: Math.min(point.x * stride + stride / 2, point.sourceWidth - 1),
-    y: Math.min(point.y * stride + stride / 2, point.sourceHeight - 1),
+  const directions = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  const scaled = points.map((point, index) => ({
+    // Component extrema are downsample pixel centres; homography sampling
+    // needs the outer boundary. Expand by half a downsample cell so the far
+    // grid edge does not drift into its neighbouring QRS cell.
+    x: Math.max(0, Math.min(point.x * stride + stride / 2 + directions[index][0] * stride / 2,
+      point.sourceWidth - 1)),
+    y: Math.max(0, Math.min(point.y * stride + stride / 2 + directions[index][1] * stride / 2,
+      point.sourceHeight - 1)),
   }));
   return [scaled[0], scaled[1], scaled[2], scaled[3]];
 }
