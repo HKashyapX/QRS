@@ -197,21 +197,21 @@ export function samplePerspectiveGrid(imageData, quad, gridSize, quietCells = 0)
   const fullGrid = gridSize + quietCells * 2;
   const transform = squareToQuad(quad);
   const cells = new Uint8Array(gridSize * gridSize);
-  const offsets = [-0.18, 0, 0.18];
+  const offsets = [
+    [-0.18, -0.18], [0.18, -0.18], [0, 0], [-0.18, 0.18], [0.18, 0.18],
+  ];
   for (let y = 0; y < gridSize; y += 1) {
     for (let x = 0; x < gridSize; x += 1) {
       let sum = 0;
       let samples = 0;
-      for (const offsetY of offsets) {
-        for (const offsetX of offsets) {
-          const u = (x + quietCells + 0.5 + offsetX) / fullGrid;
-          const v = (y + quietCells + 0.5 + offsetY) / fullGrid;
-          const point = projectPoint(transform, u, v);
-          const sourceX = Math.max(0, Math.min(imageData.width - 1, Math.round(point.x)));
-          const sourceY = Math.max(0, Math.min(imageData.height - 1, Math.round(point.y)));
-          sum += luminance(imageData.data, (sourceY * imageData.width + sourceX) * 4);
-          samples += 1;
-        }
+      for (const [offsetX, offsetY] of offsets) {
+        const u = (x + quietCells + 0.5 + offsetX) / fullGrid;
+        const v = (y + quietCells + 0.5 + offsetY) / fullGrid;
+        const point = projectPoint(transform, u, v);
+        const sourceX = Math.max(0, Math.min(imageData.width - 1, Math.round(point.x)));
+        const sourceY = Math.max(0, Math.min(imageData.height - 1, Math.round(point.y)));
+        sum += luminance(imageData.data, (sourceY * imageData.width + sourceX) * 4);
+        samples += 1;
       }
       cells[y * gridSize + x] = Math.round(sum / samples);
     }
@@ -225,29 +225,55 @@ export function quadMotion(previous, current) {
   return previous.reduce((sum, point, index) => sum + distance(point, current[index]), 0) / (4 * scale);
 }
 
-// The transmitter emits phase A and then its inverse, phase B. Treating the
-// stream as two independent "latest phase" slots causes B(n) to be paired with
-// A(n+1) once per logical frame. This small state machine only emits ordered,
-// adjacent A -> B pairs and discards orphaned B observations.
+function observationQuality(observation) {
+  const { classification } = observation;
+  return classification.contrast
+    - classification.errors * 4
+    - (classification.phaseErrors ?? 0) * 8;
+}
+
+// Retain several clean A observations for the entire B window. The receiver
+// can retry later B camera frames after a rolling-shutter/transition capture
+// fails instead of discarding the only usable A immediately.
 export class OrderedPhasePairer {
-  constructor() {
-    this.pendingA = null;
+  constructor({ maximumACandidates = 3 } = {}) {
+    this.maximumACandidates = maximumACandidates;
+    this.pendingA = [];
+    this.sawB = false;
+    this.completed = false;
+    this.bAttempts = 0;
   }
 
   reset() {
-    this.pendingA = null;
+    this.pendingA = [];
+    this.sawB = false;
+    this.completed = false;
+    this.bAttempts = 0;
+  }
+
+  complete() {
+    this.completed = true;
   }
 
   push(classification, metadata = {}) {
     const observation = { classification, ...metadata };
     if (!classification.inverted) {
-      this.pendingA = observation;
-      return { status: "armed", pair: null };
+      const advanced = this.sawB;
+      if (advanced) this.reset();
+      this.pendingA.push(observation);
+      this.pendingA.sort((left, right) => observationQuality(right) - observationQuality(left));
+      this.pendingA.length = Math.min(this.pendingA.length, this.maximumACandidates);
+      return { status: advanced ? "advanced" : "armed", pairs: [] };
     }
-    if (!this.pendingA) return { status: "orphan", pair: null };
-    const pair = [this.pendingA, observation];
-    this.pendingA = null;
-    return { status: "paired", pair };
+    if (!this.pendingA.length) return { status: "orphan", pairs: [] };
+    this.sawB = true;
+    if (this.completed) return { status: "duplicate", pairs: [] };
+    this.bAttempts += 1;
+    return {
+      status: "candidate",
+      attempt: this.bAttempts,
+      pairs: this.pendingA.map((phaseA) => [phaseA, observation]),
+    };
   }
 }
 

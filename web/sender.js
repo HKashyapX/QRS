@@ -3,12 +3,13 @@ import {
   FEC_CODEC,
   FRAME_TYPE,
   LtEncoder,
+  OpticalTransmissionSchedule,
   drawOpticalMatrix,
   encodeOpticalPhase,
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=optical-envelope-1";
+} from "./qrs-core.js?v=throughput-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");
@@ -72,17 +73,27 @@ startButton.addEventListener("click", async () => {
     filename: safeFilename(selectedFile.name),
   });
   const manifestFrame = { type: FRAME_TYPE.MANIFEST, flags: 0, sessionId, symbolId: 0, payload: manifestPayload };
+  const schedule = new OpticalTransmissionSchedule(encoder.sourceSymbolCount);
+  const scheduledFrame = (entry) => entry.type === "manifest" ? manifestFrame : {
+    type: FRAME_TYPE.DATA,
+    flags: 0,
+    sessionId,
+    symbolId: entry.symbolId,
+    payload: encoder.encode(entry.symbolId),
+  };
 
   running = true;
   startButton.disabled = true;
   stopButton.disabled = false;
   fullscreenButton.disabled = false;
-  status.textContent = `Transmitting unencrypted session ${sessionId.toString(16).padStart(16, "0")}.`;
+  status.textContent = `Transmitting ${object.length.toLocaleString()} bytes as ${encoder.sourceSymbolCount} source symbols · unencrypted session ${sessionId.toString(16).padStart(16, "0")}.`;
 
-  let dataSymbolId = 0;
-  let logicalFrameNumber = 0;
   let inverted = false;
-  let currentFrame = manifestFrame;
+  let currentSchedule = schedule.next();
+  let currentFrame = scheduledFrame(currentSchedule);
+  let manifestFrames = 0;
+  let systematicFrames = 0;
+  let repairFrames = 0;
   let nextPhaseAt = performance.now();
   let phaseCount = 0;
   const startedAt = nextPhaseAt;
@@ -97,22 +108,14 @@ startButton.addEventListener("click", async () => {
     phaseCount += 1;
     const phaseRate = phaseCount > 1 ? (phaseCount - 1) / Math.max(0.001, (now - startedAt) / 1000) : 0;
     phaseMetric.textContent = `${inverted ? "Phase B" : "Phase A"} · ${phaseRate.toFixed(1)} phases/s`;
-    symbolMetric.textContent = `${dataSymbolId.toLocaleString()} data symbols generated`;
+    symbolMetric.textContent = `${systematicFrames} source · ${repairFrames} repair · ${manifestFrames} manifest`;
 
     if (inverted) {
-      logicalFrameNumber += 1;
-      if (logicalFrameNumber % 20 === 0) {
-        currentFrame = manifestFrame;
-      } else {
-        currentFrame = {
-          type: FRAME_TYPE.DATA,
-          flags: 0,
-          sessionId,
-          symbolId: dataSymbolId,
-          payload: encoder.encode(dataSymbolId),
-        };
-        dataSymbolId += 1;
-      }
+      if (currentSchedule.type === "manifest") manifestFrames += 1;
+      else if (currentSchedule.systematic) systematicFrames += 1;
+      else repairFrames += 1;
+      currentSchedule = schedule.next();
+      currentFrame = scheduledFrame(currentSchedule);
     }
     inverted = !inverted;
     const duration = Number(phaseDurationInput.value);

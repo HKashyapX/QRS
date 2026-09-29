@@ -244,6 +244,52 @@ export class LtDecoder {
   }
 }
 
+export class OpticalTransmissionSchedule {
+  constructor(sourceSymbolCount, { manifestBurst = 4, manifestInterval = 24 } = {}) {
+    if (!Number.isInteger(sourceSymbolCount) || sourceSymbolCount < 1) {
+      throw new Error("Transmission schedule requires source symbols");
+    }
+    this.sourceSymbolCount = sourceSymbolCount;
+    this.manifestBurst = manifestBurst;
+    this.manifestInterval = manifestInterval;
+    this.logicalFrames = 0;
+    this.dataFrames = 0;
+    this.systematicPosition = 0;
+    this.systematicCycle = 0;
+    this.systematicStep = Math.max(1, Math.floor(sourceSymbolCount / 2));
+    const gcd = (left, right) => right ? gcd(right, left % right) : left;
+    while (gcd(this.systematicStep, sourceSymbolCount) !== 1) this.systematicStep += 1;
+    this.repairIndex = sourceSymbolCount;
+  }
+
+  next() {
+    const logicalFrame = this.logicalFrames;
+    this.logicalFrames += 1;
+    if (logicalFrame < this.manifestBurst
+      || (logicalFrame >= this.manifestBurst && logicalFrame % this.manifestInterval === 0)) {
+      return { type: "manifest" };
+    }
+
+    // Two continuously cycled source symbols for every fresh repair symbol.
+    // A receiver that locks late can still obtain every systematic symbol.
+    const repairTurn = this.dataFrames % 3 === 2;
+    this.dataFrames += 1;
+    if (repairTurn) {
+      const symbolId = this.repairIndex;
+      this.repairIndex += 1;
+      return { type: "data", symbolId, systematic: false };
+    }
+    const symbolId = (this.systematicPosition * this.systematicStep + this.systematicCycle)
+      % this.sourceSymbolCount;
+    this.systematicPosition += 1;
+    if (this.systematicPosition === this.sourceSymbolCount) {
+      this.systematicPosition = 0;
+      this.systematicCycle = (this.systematicCycle + 1) % this.sourceSymbolCount;
+    }
+    return { type: "data", symbolId, systematic: true };
+  }
+}
+
 const MARKER_SIZE = 9;
 const MARKER_CODES = ["000000000", "111100000", "110011000", "101010100"];
 const PHASE_WORD = "10110100111001011000101100101110";

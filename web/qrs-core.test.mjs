@@ -3,6 +3,7 @@ import {
   FRAME_TYPE,
   LtDecoder,
   LtEncoder,
+  OpticalTransmissionSchedule,
   classifyOptical,
   crc32c,
   decodeOpticalPair,
@@ -72,5 +73,33 @@ assert.deepEqual(decoder.recover(), input);
 const vectorEncoder = new LtEncoder(Uint8Array.from({ length: 32 }, (_, index) => index), 4);
 assert.deepEqual(vectorEncoder.encode(8), new Uint8Array([4, 4, 4, 4]));
 assert.deepEqual(vectorEncoder.encode(11), new Uint8Array([16, 16, 16, 16]));
+
+const schedule = new OpticalTransmissionSchedule(3);
+assert.deepEqual(Array.from({ length: 4 }, () => schedule.next().type),
+  ["manifest", "manifest", "manifest", "manifest"]);
+const scheduledData = Array.from({ length: 8 }, () => schedule.next());
+assert.deepEqual(scheduledData.map((entry) => entry.type), Array(8).fill("data"));
+assert.deepEqual(scheduledData.map((entry) => entry.symbolId), [0, 1, 3, 2, 1, 4, 2, 0]);
+assert.deepEqual(scheduledData.map((entry) => entry.systematic),
+  [true, true, false, true, true, false, true, true]);
+while (schedule.logicalFrames < 24) schedule.next();
+assert.equal(schedule.next().type, "manifest", "the manifest should remain periodically recoverable");
+
+const lateInput = Uint8Array.from({ length: 59 * 32 }, (_, index) => (index * 43 + 19) & 0xff);
+const lateEncoder = new LtEncoder(lateInput, 32);
+const lateDecoder = new LtDecoder({
+  objectSize: lateInput.length,
+  symbolSize: 32,
+  sourceSymbolCount: lateEncoder.sourceSymbolCount,
+});
+const lateSchedule = new OpticalTransmissionSchedule(lateEncoder.sourceSymbolCount);
+for (let frameNumber = 0; frameNumber < 6000 && !lateDecoder.complete; frameNumber += 1) {
+  const entry = lateSchedule.next();
+  if (entry.type === "data" && frameNumber >= 120 && (frameNumber * 17) % 10 < 3) {
+    lateDecoder.add(entry.symbolId, lateEncoder.encode(entry.symbolId));
+  }
+}
+assert.equal(lateDecoder.complete, true, "late lock plus 70% loss should recover from the ongoing schedule");
+assert.deepEqual(lateDecoder.recover(), lateInput);
 
 console.log("All browser-core tests passed");

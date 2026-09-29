@@ -8,13 +8,13 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=optical-envelope-1";
+} from "./qrs-core.js?v=throughput-1";
 import {
   OpticalTracker,
   OrderedPhasePairer,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js?v=optical-envelope-1";
+} from "./acquisition.js?v=throughput-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -51,6 +51,7 @@ let lastCameraFrameAt = 0;
 let processingTotal = 0;
 let processingMaximum = 0;
 let cameraSettings = "not started";
+let consecutiveMarkerFailures = 0;
 const phasePairer = new OrderedPhasePairer();
 let activeSession = null;
 let manifest = null;
@@ -74,6 +75,10 @@ const counters = {
   acquisitionMisses: 0,
   geometryRejects: 0,
   orphanPhaseB: 0,
+  duplicatePhaseB: 0,
+  phasePairObservations: 0,
+  phasePairRetries: 0,
+  recoveredAfterRetry: 0,
   cameraFrames: 0,
   duplicateCallbacks: 0,
   detectionRuns: 0,
@@ -81,7 +86,8 @@ const counters = {
 };
 const errorCounts = new Map();
 let lastDiagnosticError = "none";
-const DETECTION_INTERVAL_MS = 100;
+const DETECTION_INTERVAL_MS = 200;
+const MARKER_FAILURES_BEFORE_REACQUIRE = 6;
 
 function currentRoi() {
   const size = Number(roiSizeInput.value);
@@ -188,6 +194,7 @@ function acceptFrame(frame) {
 function processOpticalGrid(cells, acquisition) {
   counters.sampled += 1;
   const classification = classifyOptical(cells);
+  consecutiveMarkerFailures = 0;
   markerLocked = true;
   counters.markerLocks += 1;
   confidenceMetric.textContent = `Marker errors ${classification.errors} · contrast ${classification.contrast}`;
@@ -201,26 +208,40 @@ function processOpticalGrid(cells, acquisition) {
     counters.orphanPhaseB += 1;
     return false;
   }
-  if (!pairing.pair) return true;
-  const [phaseA, phaseB] = pairing.pair;
+  if (pairing.status === "duplicate") {
+    counters.duplicatePhaseB += 1;
+    return true;
+  }
+  if (!pairing.pairs.length) return true;
+  counters.phasePairObservations += 1;
+  if (pairing.attempt > 1) counters.phasePairRetries += 1;
 
-  if (quadMotion(phaseA.quad, phaseB.quad) > 0.055) {
+  let lastError = null;
+  let geometryCandidates = 0;
+  for (const [phaseA, phaseB] of pairing.pairs) {
+    if (quadMotion(phaseA.quad, phaseB.quad) > 0.055) continue;
+    geometryCandidates += 1;
+    try {
+      const frame = decodeOpticalPair(phaseA.classification, phaseB.classification, Number(minimumContrastInput.value));
+      acceptFrame(frame);
+      phasePairer.complete();
+      validFrames += 1;
+      if (pairing.attempt > 1) counters.recoveredAfterRetry += 1;
+      frameMetric.textContent = `${validFrames} valid frames`;
+      lastDiagnosticError = "none";
+      return true;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!geometryCandidates) {
     counters.geometryRejects += 1;
     lastDiagnosticError = "Camera moved between differential phases";
     return false;
   }
-
-  try {
-    const frame = decodeOpticalPair(phaseA.classification, phaseB.classification, Number(minimumContrastInput.value));
-    acceptFrame(frame);
-    validFrames += 1;
-    frameMetric.textContent = `${validFrames} valid frames`;
-    lastDiagnosticError = "none";
-  } catch (error) {
-    counters.pairRejects += 1;
-    recordError(error);
-  }
-  return true;
+  counters.pairRejects += 1;
+  recordError(lastError ?? new Error("Optical pair could not be decoded"));
+  return false;
 }
 
 function updateDiagnostics() {
@@ -228,6 +249,9 @@ function updateDiagnostics() {
   const observedFps = counters.cameraFrames > 1 ? (counters.cameraFrames - 1) / elapsedSeconds : 0;
   const averageProcessing = counters.cameraFrames ? processingTotal / counters.cameraFrames : 0;
   const validRate = validFrames / elapsedSeconds;
+  const resolvedBytes = decoder && manifest
+    ? Math.min(manifest.objectSize, decoder.resolvedCount * manifest.symbolSize)
+    : 0;
   const commonErrors = [...errorCounts.entries()]
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
@@ -238,18 +262,21 @@ function updateDiagnostics() {
     `camera settings: ${cameraSettings}`,
     `duplicate camera callbacks: ${counters.duplicateCallbacks}`,
     `processing avg/max: ${averageProcessing.toFixed(1)} / ${processingMaximum.toFixed(1)} ms`,
+    `processing load: ${observedFps ? Math.min(999, averageProcessing * observedFps).toFixed(0) : 0} ms/s`,
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
     `phase A/B observations: ${counters.phaseA}/${counters.phaseB}`,
     `valid/rejected pairs: ${validFrames}/${counters.pairRejects} (${validRate.toFixed(2)} valid/s)`,
+    `pair observations/retries/recovered: ${counters.phasePairObservations}/${counters.phasePairRetries}/${counters.recoveredAfterRetry}`,
     `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
     `unique data symbols: ${counters.uniqueSymbols}`,
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
+    `estimated resolved goodput: ${(resolvedBytes / elapsedSeconds).toFixed(1)} bytes/s`,
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
     `detections/reused tracks: ${counters.detectionRuns}/${counters.reusedTracks}`,
     `geometry pair rejects: ${counters.geometryRejects}`,
-    `orphan phase B drops: ${counters.orphanPhaseB}`,
+    `orphan/duplicate phase B: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
     `last pair error: ${lastDiagnosticError}`,
     `top errors: ${commonErrors}`,
@@ -292,11 +319,14 @@ function processVideoFrame(now, metadata) {
     } catch (error) {
       markerLocked = false;
       counters.markerFailures += 1;
+      consecutiveMarkerFailures += 1;
       recordError(error);
       confidenceMetric.textContent = "No marker lock";
-      // A bad classification often means the geometry drifted. Re-run the
-      // detector on the next camera frame instead of trusting the stale quad.
-      if (/orientation|frame not found/i.test(lastDiagnosticError)) lastDetectionAt = -Infinity;
+      if (/frame not found/i.test(lastDiagnosticError)
+        || consecutiveMarkerFailures >= MARKER_FAILURES_BEFORE_REACQUIRE) {
+        lastDetectionAt = -Infinity;
+        consecutiveMarkerFailures = 0;
+      }
     }
     drawGuide(markerLocked, activeQuad);
     const processingTime = performance.now() - processingStart;
@@ -345,6 +375,7 @@ function resetTransfer() {
   lastCameraFrameAt = 0;
   processingTotal = 0;
   processingMaximum = 0;
+  consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
   lastDiagnosticError = "none";
   progress.value = 0;
@@ -363,7 +394,7 @@ function resetTransfer() {
 resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
   const report = [
-    "QRS v0.1.1 optical-envelope diagnostics",
+    "QRS v0.1.2 throughput diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,

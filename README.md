@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone: v0.1.1 Optical Envelope
+## Current milestone: v0.1.2 Throughput Recovery
 
 The Protocol v0 core provides:
 
@@ -27,6 +27,9 @@ The Protocol v0 core provides:
 - Perspective-corrected cell sampling with temporal corner smoothing.
 - A fullscreen-safe black guard around the detected white symbol boundary.
 - Camera-frame-synchronized processing and tracked-homography reuse.
+- Retryable A/B phase windows that retain clean A candidates until a B observation decodes.
+- Continuous systematic-symbol cycling mixed with fresh fountain repair symbols.
+- Initial manifest bursts so receivers can bind before the systematic stream advances.
 - Geometry-aware rejection when the camera moves between differential phases.
 - A manual alignment fallback and expanded acquisition diagnostics.
 

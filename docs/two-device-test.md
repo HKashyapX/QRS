@@ -1,6 +1,6 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.1.1 automatic optical acquisition. It does not validate encryption,
+This procedure validates v0.1.2 automatic optical acquisition and throughput recovery. It does not validate encryption,
 colour symbols, or hostile lighting performance.
 
 ## Equipment
@@ -72,7 +72,8 @@ Run tests in this order and stop at the first failure:
 
 1. Existing 23-byte `payload.txt` at 300 ms, windowed.
 2. Repeat the 23-byte file at 300 ms in fullscreen. The black guard must remain visible.
-3. Repeat at 220, 150, and 100 ms; use the fastest duration that does not sharply raise errors.
+3. Use 150 ms for the direct v0.1.1 comparison. Repeat at 220 ms if transition, pilot, or contrast
+   errors remain dominant; test 100 ms only after 150 ms is reliable.
 4. A 1 KB text file at the chosen duration.
 5. A 10 KB image or binary file at the chosen duration.
 6. Try 67, 50, and 33 ms only as channel-limit probes; record actual camera FPS and errors.
