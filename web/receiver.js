@@ -8,7 +8,7 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=tail-motion-1";
+} from "./qrs-core.js?v=tail-motion-2";
 import {
   OpticalTracker,
   OrderedPhasePairer,
