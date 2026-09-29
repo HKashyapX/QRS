@@ -60,6 +60,12 @@ interpret data symbols before learning the object and FEC parameters.
 Carries exactly one fixed-size FEC encoding symbol. `symbol ID` determines the source-symbol
 dependencies for the selected FEC codec.
 
+The current live schedule sends an initial four-frame manifest burst, then periodically repeats the
+manifest every 24 logical frames. Between manifests, two systematic symbols are sent for every new
+repair symbol. Systematic IDs cycle continuously through `0..K-1`; repair IDs increase from `K`.
+This schedule is required because a simplex receiver may lock after the first systematic pass and
+cannot request retransmission.
+
 ### END (`3`)
 
 Optional sender hint indicating the end of a finite transmission budget. Fountain-mode senders
