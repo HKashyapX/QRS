@@ -108,7 +108,8 @@ Manifest parse_manifest(const std::span<const std::uint8_t> encoded) {
                              encoded.end());
 
     if (manifest.fec_codec != FecCodec::deterministic_lt &&
-        manifest.fec_codec != FecCodec::raptorq) {
+        manifest.fec_codec != FecCodec::raptorq &&
+        manifest.fec_codec != FecCodec::dense_lt_gf2) {
         throw ManifestError("unknown FEC codec");
     }
     if (manifest.crypto_suite != CryptoSuite::none &&

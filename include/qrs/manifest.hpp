@@ -12,6 +12,7 @@ namespace qrs {
 enum class FecCodec : std::uint8_t {
     deterministic_lt = 1,
     raptorq = 2,
+    dense_lt_gf2 = 3,
 };
 
 enum class CryptoSuite : std::uint8_t {

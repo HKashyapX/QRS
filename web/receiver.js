@@ -193,7 +193,9 @@ function acceptFrame(frame) {
   if (frame.type === FRAME_TYPE.MANIFEST) {
     counters.manifests += 1;
     const nextManifest = parseManifest(frame.payload);
-    if (nextManifest.fecCodec !== FEC_CODEC.DETERMINISTIC_LT) throw new Error("Unsupported FEC codec");
+    if (![FEC_CODEC.DETERMINISTIC_LT, FEC_CODEC.DENSE_LT_GF2].includes(nextManifest.fecCodec)) {
+      throw new Error("Unsupported FEC codec");
+    }
     if (activeSession !== frame.sessionId) {
       activeSession = frame.sessionId;
       manifest = nextManifest;

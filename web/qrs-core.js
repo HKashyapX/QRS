@@ -6,7 +6,7 @@ export const CANVAS_GRID_SIZE = DISPLAY_GRID_SIZE + GUARD_CELLS * 2;
 export const FRAME_HEADER_SIZE = 22;
 export const FRAME_TRAILER_SIZE = 4;
 export const FRAME_TYPE = Object.freeze({ MANIFEST: 1, DATA: 2, END: 3 });
-export const FEC_CODEC = Object.freeze({ DETERMINISTIC_LT: 1, RAPTORQ: 2 });
+export const FEC_CODEC = Object.freeze({ DETERMINISTIC_LT: 1, RAPTORQ: 2, DENSE_LT_GF2: 3 });
 export const CRYPTO_SUITE = Object.freeze({ NONE: 0, AES_256_GCM: 1, XCHACHA20_POLY1305: 2 });
 
 const MAGIC = new Uint8Array([0x51, 0x52, 0x53, 0x30]);

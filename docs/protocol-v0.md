@@ -79,7 +79,7 @@ may continue indefinitely and omit this frame. Completion is always determined b
 | 0 | 8 | object size | Exact original object length in octets |
 | 8 | 2 | symbol size | Fixed source/encoding-symbol size |
 | 10 | 4 | source count | `ceil(object size / symbol size)` |
-| 14 | 1 | FEC codec | `1=deterministic LT`, `2=RaptorQ` reserved |
+| 14 | 1 | FEC codec | `1=sparse deterministic LT`, `2=RaptorQ` reserved, `3=dense LT/GF(2)` |
 | 15 | 1 | crypto suite | `0=none`, `1=AES-256-GCM`, `2=XChaCha20-Poly1305` |
 | 16 | 2 | filename length | Filename length in octets, maximum 255 |
 | 18 | 32 | SHA-256 | Object digest; all zero until digest support is enabled |
@@ -88,11 +88,12 @@ may continue indefinitely and omit this frame. Completion is always determined b
 Receivers must never treat a transmitted filename as a filesystem path. Path separators,
 platform-reserved characters, control bytes, empty names, `.` and `..` are replaced or rejected.
 
-## 6. Development FEC codec (`1`)
+## 6. Development FEC codecs (`1` and `3`)
 
-Codec `1` is a deterministic LT-style development codec. It exists to unblock the MVP and is not
-claimed to be RaptorQ or a standards-compliant LT profile. Its interface permits replacement with
-RaptorQ after WASM and licensing evaluation.
+Codec `1` is the original sparse deterministic LT-style development codec. Codec `3` adds dense
+tail repairs and bounded GF(2) elimination. Neither is claimed to be RaptorQ or a standards-
+compliant LT profile. The distinct manifest identifier makes an older receiver reject codec `3`
+instead of interpreting dense rows with the sparse dependency map.
 
 The object is zero-padded to `K` source symbols of `T` octets. The receiver trims the recovered
 object to the exact manifest length.

@@ -67,7 +67,7 @@ startButton.addEventListener("click", async () => {
     objectSize: object.length,
     symbolSize: SYMBOL_SIZE,
     sourceSymbolCount: encoder.sourceSymbolCount,
-    fecCodec: FEC_CODEC.DETERMINISTIC_LT,
+    fecCodec: FEC_CODEC.DENSE_LT_GF2,
     cryptoSuite: CRYPTO_SUITE.NONE,
     sha256: new Uint8Array(32),
     filename: safeFilename(selectedFile.name),
