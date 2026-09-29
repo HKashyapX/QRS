@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone: v0.1.3 Acquisition Hot Path
+## Current milestone: v0.1.4 Tail and Motion
 
 The Protocol v0 core provides:
 
@@ -32,9 +32,11 @@ The Protocol v0 core provides:
 - CRC-guarded tolerance for a bounded number of weak differential cells.
 - A camera-range marker classifier backed by marker errors, phase pilot checks, and frame CRC.
 - Continuous systematic-symbol cycling mixed with fresh fountain repair symbols.
+- Bounded GF(2) elimination that closes final LT stopping sets after fast peeling stalls.
 - Initial manifest bursts so receivers can bind before the systematic stream advances.
 - Geometry-aware rejection when the camera moves between differential phases.
 - A manual alignment fallback and expanded acquisition diagnostics.
+- Tracking-state feedback that does not flicker when a single optical phase is rejected.
 
 SHA-256 implementation, encryption, adaptive grid density, and colour symbols are not implemented
 yet. The colour work is deliberately isolated until acquisition is measured across real devices.
@@ -76,18 +78,19 @@ Cloudflare Pages or GitHub Pages; camera access normally does not work from a pl
 
 1. Open `send.html` on the display device and select a file below 10 KB for the first test.
 2. Open `receive.html` on the camera device and permit camera access.
-3. Keep the complete white square and some black surround visible. The green/yellow overlay follows
-   the detected frame.
+3. Keep the complete white square and some black surround visible. Green means the outer frame is
+   being tracked; individual noisy phases may still be rejected without losing alignment.
 4. Start transmission and hold both devices stable until the receiver exposes the download.
 
-Automatic tracking is the default. If a device cannot acquire the outer frame, disable it and use
-the alignment-box slider as a controlled fallback.
+Automatic tracking is the default. The 384 px alignment box is not used in this mode. If a device
+cannot acquire the outer frame, open **Advanced acquisition controls**, disable automatic tracking,
+and use the alignment-box slider as a controlled fallback.
 
 Follow the complete [two-device test procedure](docs/two-device-test.md) and retain the receiver
 diagnostics from each attempt.
 
 The current field-test rationale and acceptance targets are recorded in
-[`docs/v0.1.3-acquisition-hotpath.md`](docs/v0.1.3-acquisition-hotpath.md).
+[`docs/v0.1.4-tail-motion.md`](docs/v0.1.4-tail-motion.md).
 
 To build the original OpenCV prototype as `qrs_phase1`:
 

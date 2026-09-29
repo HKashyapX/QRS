@@ -12,6 +12,7 @@ export const CRYPTO_SUITE = Object.freeze({ NONE: 0, AES_256_GCM: 1, XCHACHA20_P
 const MAGIC = new Uint8Array([0x51, 0x52, 0x53, 0x30]);
 const VERSION = 0;
 const MASK64 = (1n << 64n) - 1n;
+const DENSE_REPAIR_FLAG = 0x80000000;
 
 export function crc32c(bytes) {
   let crc = 0xffffffff;
@@ -141,6 +142,15 @@ function dependenciesFor(symbolId, sourceCount) {
   if (sourceCount === 0) return [];
   if (symbolId < sourceCount) return [symbolId];
   const state = { value: (0x5152532d4c542d30n ^ BigInt(symbolId)) & MASK64 };
+  if (symbolId >= DENSE_REPAIR_FLAG) {
+    const degree = Math.min(sourceCount, Math.max(1, Math.ceil(sourceCount / 2) | 1));
+    const dependencies = [];
+    while (dependencies.length < degree) {
+      const candidate = Number(nextSplitMix64(state) % BigInt(sourceCount));
+      if (!dependencies.includes(candidate)) dependencies.push(candidate);
+    }
+    return dependencies.sort((a, b) => a - b);
+  }
   const roll = Number(nextSplitMix64(state) % 100n);
   let degree = roll < 45 ? 1 : roll < 80 ? 2 : roll < 94 ? 3 : 4;
   if (roll >= 94) {
@@ -158,6 +168,27 @@ function dependenciesFor(symbolId, sourceCount) {
 
 function xorInto(destination, source) {
   for (let i = 0; i < destination.length; i += 1) destination[i] ^= source[i];
+}
+
+function xorSortedDependencies(left, right) {
+  const result = [];
+  let leftIndex = 0;
+  let rightIndex = 0;
+  while (leftIndex < left.length || rightIndex < right.length) {
+    const leftValue = left[leftIndex];
+    const rightValue = right[rightIndex];
+    if (rightIndex >= right.length || (leftIndex < left.length && leftValue < rightValue)) {
+      result.push(leftValue);
+      leftIndex += 1;
+    } else if (leftIndex >= left.length || rightValue < leftValue) {
+      result.push(rightValue);
+      rightIndex += 1;
+    } else {
+      leftIndex += 1;
+      rightIndex += 1;
+    }
+  }
+  return result;
 }
 
 export class LtEncoder {
@@ -207,6 +238,7 @@ export class LtDecoder {
     });
     if (equation.dependencies.length) this.equations.push(equation);
     this.propagate();
+    this.solveTail();
     return true;
   }
 
@@ -231,6 +263,46 @@ export class LtDecoder {
     }
   }
 
+  solveTail() {
+    const unresolvedCount = this.sourceSymbolCount - this.resolvedCount;
+    if (!unresolvedCount || unresolvedCount > 64 || this.equations.length < unresolvedCount) return;
+
+    // Peeling stalls on a stopping set even when the collected equations have
+    // full rank. Reduce only the small final system to keep the camera hot path
+    // cheap for large objects.
+    const pivots = new Map();
+    for (const equation of this.equations) {
+      const row = {
+        dependencies: equation.dependencies.slice(),
+        payload: equation.payload.slice(),
+      };
+      while (row.dependencies.length) {
+        const pivot = row.dependencies[0];
+        const existing = pivots.get(pivot);
+        if (!existing) {
+          pivots.set(pivot, row);
+          break;
+        }
+        row.dependencies = xorSortedDependencies(row.dependencies, existing.dependencies);
+        xorInto(row.payload, existing.payload);
+      }
+    }
+
+    const pivotKeys = [...pivots.keys()].sort((left, right) => right - left);
+    for (const pivot of pivotKeys) {
+      const pivotRow = pivots.get(pivot);
+      for (const otherPivot of pivotKeys) {
+        if (otherPivot >= pivot) continue;
+        const otherRow = pivots.get(otherPivot);
+        if (!otherRow.dependencies.includes(pivot)) continue;
+        otherRow.dependencies = xorSortedDependencies(otherRow.dependencies, pivotRow.dependencies);
+        xorInto(otherRow.payload, pivotRow.payload);
+      }
+    }
+    this.equations = [...pivots.values()];
+    this.propagate();
+  }
+
   recover() {
     if (!this.complete) throw new Error("Object is incomplete");
     const output = new Uint8Array(this.objectSize);
@@ -245,13 +317,18 @@ export class LtDecoder {
 }
 
 export class OpticalTransmissionSchedule {
-  constructor(sourceSymbolCount, { manifestBurst = 4, manifestInterval = 24 } = {}) {
+  constructor(sourceSymbolCount, {
+    manifestBurst = 4,
+    manifestInterval = 24,
+    systematicPerRepair = 2,
+  } = {}) {
     if (!Number.isInteger(sourceSymbolCount) || sourceSymbolCount < 1) {
       throw new Error("Transmission schedule requires source symbols");
     }
     this.sourceSymbolCount = sourceSymbolCount;
     this.manifestBurst = manifestBurst;
     this.manifestInterval = manifestInterval;
+    this.systematicPerRepair = systematicPerRepair;
     this.logicalFrames = 0;
     this.dataFrames = 0;
     this.systematicPosition = 0;
@@ -259,7 +336,7 @@ export class OpticalTransmissionSchedule {
     this.systematicStep = Math.max(1, Math.floor(sourceSymbolCount / 2));
     const gcd = (left, right) => right ? gcd(right, left % right) : left;
     while (gcd(this.systematicStep, sourceSymbolCount) !== 1) this.systematicStep += 1;
-    this.repairIndex = sourceSymbolCount;
+    this.repairIndex = DENSE_REPAIR_FLAG;
   }
 
   next() {
@@ -270,9 +347,10 @@ export class OpticalTransmissionSchedule {
       return { type: "manifest" };
     }
 
-    // Two continuously cycled source symbols for every fresh repair symbol.
-    // A receiver that locks late can still obtain every systematic symbol.
-    const repairTurn = this.dataFrames % 3 === 2;
+    // Coverage-first epochs reduce the simplex "last missing source" tail while
+    // fresh repair equations still bridge erased systematic observations.
+    const repairTurn = this.dataFrames % (this.systematicPerRepair + 1)
+      === this.systematicPerRepair;
     this.dataFrames += 1;
     if (repairTurn) {
       const symbolId = this.repairIndex;

@@ -9,7 +9,7 @@ import {
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=hotpath-1";
+} from "./qrs-core.js?v=tail-motion-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");

@@ -46,6 +46,7 @@ private:
     };
 
     void propagate();
+    void solve_tail();
 
     FecParameters parameters_;
     std::vector<std::optional<std::vector<std::uint8_t>>> resolved_;

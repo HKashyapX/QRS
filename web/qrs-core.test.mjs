@@ -98,13 +98,15 @@ assert.deepEqual(decoder.recover(), input);
 const vectorEncoder = new LtEncoder(Uint8Array.from({ length: 32 }, (_, index) => index), 4);
 assert.deepEqual(vectorEncoder.encode(8), new Uint8Array([4, 4, 4, 4]));
 assert.deepEqual(vectorEncoder.encode(11), new Uint8Array([16, 16, 16, 16]));
+assert.deepEqual(vectorEncoder.encode(0x80000000), new Uint8Array([28, 29, 30, 31]));
+assert.deepEqual(vectorEncoder.encode(0x80000001), new Uint8Array([4, 5, 6, 7]));
 
 const schedule = new OpticalTransmissionSchedule(3);
 assert.deepEqual(Array.from({ length: 4 }, () => schedule.next().type),
   ["manifest", "manifest", "manifest", "manifest"]);
 const scheduledData = Array.from({ length: 8 }, () => schedule.next());
 assert.deepEqual(scheduledData.map((entry) => entry.type), Array(8).fill("data"));
-assert.deepEqual(scheduledData.map((entry) => entry.symbolId), [0, 1, 3, 2, 1, 4, 2, 0]);
+assert.deepEqual(scheduledData.map((entry) => entry.symbolId), [0, 1, 0x80000000, 2, 1, 0x80000001, 2, 0]);
 assert.deepEqual(scheduledData.map((entry) => entry.systematic),
   [true, true, false, true, true, false, true, true]);
 while (schedule.logicalFrames < 24) schedule.next();
@@ -126,5 +128,26 @@ for (let frameNumber = 0; frameNumber < 6000 && !lateDecoder.complete; frameNumb
 }
 assert.equal(lateDecoder.complete, true, "late lock plus 70% loss should recover from the ongoing schedule");
 assert.deepEqual(lateDecoder.recover(), lateInput);
+
+const tailInput = Uint8Array.from({ length: 156 * 256 }, (_, index) => (index * 67 + 31) & 0xff);
+const tailEncoder = new LtEncoder(tailInput, 256);
+const tailDecoder = new LtDecoder({
+  objectSize: tailInput.length,
+  symbolSize: 256,
+  sourceSymbolCount: tailEncoder.sourceSymbolCount,
+});
+const tailSchedule = new OpticalTransmissionSchedule(tailEncoder.sourceSymbolCount);
+let tailFrame = 0;
+for (; tailFrame < 1600 && !tailDecoder.complete; tailFrame += 1) {
+  const entry = tailSchedule.next();
+  // Deterministic 40% loss plus short bursts model the measured mobile channel.
+  const delivered = (tailFrame * 37) % 10 >= 4 && tailFrame % 53 > 3;
+  if (entry.type === "data" && delivered) {
+    tailDecoder.add(entry.symbolId, tailEncoder.encode(entry.symbolId));
+  }
+}
+assert.equal(tailDecoder.complete, true, "dense repair elimination should close a 156-symbol tail");
+assert.ok(tailFrame < 700, `tail recovery took too many logical frames: ${tailFrame}`);
+assert.deepEqual(tailDecoder.recover(), tailInput);
 
 console.log("All browser-core tests passed");

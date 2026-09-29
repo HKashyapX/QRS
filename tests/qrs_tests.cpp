@@ -108,6 +108,26 @@ void test_cross_language_fec_vector() {
             "deterministic LT test vector changed");
     require(encoder.encode(11) == std::vector<std::uint8_t>({16, 16, 16, 16}),
             "deterministic LT repair vector changed");
+    require(encoder.encode(0x80000000U) == std::vector<std::uint8_t>({28, 29, 30, 31}),
+            "cross-language dense repair vector changed");
+    require(encoder.encode(0x80000001U) == std::vector<std::uint8_t>({4, 5, 6, 7}),
+            "second cross-language dense repair vector changed");
+}
+
+void test_dense_tail_recovery() {
+    std::vector<std::uint8_t> input(16 * 32);
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        input[i] = static_cast<std::uint8_t>((i * 67U + 31U) & 0xffU);
+    }
+    const qrs::LtEncoder encoder(input, 32);
+    qrs::LtDecoder decoder(encoder.parameters());
+    std::uint32_t symbol_id = 0x80000000U;
+    while (!decoder.complete() && symbol_id < 0x80000040U) {
+        decoder.add(symbol_id, encoder.encode(symbol_id));
+        ++symbol_id;
+    }
+    require(decoder.complete(), "dense tail equations did not recover the object");
+    require(decoder.recover() == input, "dense tail recovery changed the object");
 }
 
 void test_optical_phase_and_orientation_recovery() {
@@ -164,6 +184,7 @@ int main() {
         test_end_to_end_with_frame_loss();
         test_duplicate_symbol_rejection();
         test_cross_language_fec_vector();
+        test_dense_tail_recovery();
         test_optical_phase_and_orientation_recovery();
         test_optical_corruption_rejection();
         std::cout << "All QRS tests passed\n";

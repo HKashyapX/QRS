@@ -1,6 +1,6 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.1.3 automatic optical acquisition and the acquisition hot path. It does not validate encryption,
+This procedure validates v0.1.4 automatic optical acquisition, recovery-tail scheduling, and motion feedback. It does not validate encryption,
 colour symbols, or hostile lighting performance.
 
 ## Equipment
@@ -20,7 +20,8 @@ starts only after the baseline succeeds.
 3. Set the sender display brightness to approximately 80–100%.
 4. Open **Receive a file** on the camera device and allow camera access.
 5. Select the rear camera.
-6. Leave **Auto-track outer frame** enabled and minimum contrast at `24` initially.
+6. Leave **Auto-track outer frame** enabled. Minimum contrast remains `24` under **Advanced
+   acquisition controls**.
 7. Open **Send a file** on the display device and select `payload.txt`.
 8. Select `300 ms` phase duration for the first acquisition, then work down the timing ladder.
 9. Enter fullscreen matrix mode.
@@ -35,7 +36,8 @@ must remain visible on all four sides. This remains true in fullscreen mode.
 2. Point the camera so the complete white square and a thin black surround are visible; exact
    alignment is not required.
 3. Move and tilt the camera slowly. The overlay should follow the four frame corners.
-4. A green tracked quadrilateral and increasing marker-lock count indicate successful acquisition.
+4. A green quadrilateral means the outer frame remains tracked. The text distinguishes a recently
+   decoded phase from a tracked frame waiting for a clean phase.
 5. If automatic detection never locks, disable it and use the alignment slider as a fallback. Record
    that fallback in the test results.
 
@@ -61,9 +63,9 @@ receiver completes.
 | Phase-pilot errors dominate | Motion blur, rolling shutter, or a phase transition was captured | Increase phase duration or move farther from a PWM-limited display |
 | Only phase A or phase B increases | Camera misses one temporal phase | Increase phase duration to 300 ms |
 | Marker locks rise but valid frames remain zero | Sampling is unstable, blurred, or phase timing is mismatched | Move closer, slow the phase duration, and reduce camera motion |
-| Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 20 frames |
+| Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 24 logical frames |
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
-| Resolved count rises slowly | High optical erasure rate | Continue transmission; fountain repair symbols can still complete recovery |
+| Final 10% resolves slowly | Remaining source symbols were erased and need a repeat or useful repair equation | Continue transmission and record source/repair plus duplicate-symbol diagnostics |
 | Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and try a slower phase duration |
 
 ## Test ladder
@@ -92,7 +94,7 @@ camera settings, actual camera rate, processing latency, valid logical-frame rat
 - Tracked/missed frames and geometry pair rejects.
 - Phase A/B observations.
 - Valid/rejected pairs.
-- Manifest/data frames.
+- Manifest/data frames, accepted source/repair frames, and unique/duplicate data symbols.
 - Resolved symbols and total symbols.
 - Camera frame rate and average/maximum processing time.
 - Hot-path capture, detection, sampling, classification, and pairing time.

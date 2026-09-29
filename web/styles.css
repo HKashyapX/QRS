@@ -48,6 +48,8 @@ code { color: #a7f3d0; }
 details { margin-top: 18px; color: #b7d8cd; }
 summary { cursor: pointer; font-weight: 700; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 10px; background: #06110e; color: #a7f3d0; font-size: 0.82rem; line-height: 1.55; }
+.advanced-controls { padding: 0 2px; }
+.control-note { margin: 10px 0 0; font-size: 0.9rem; }
 
 @media (max-width: 560px) {
   main { width: min(100% - 20px, 960px); padding-top: 22px; }

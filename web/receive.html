@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Receive — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=optical-envelope-1">
+  <link rel="stylesheet" href="styles.css?v=tail-motion-1">
 </head>
 <body>
   <main>
     <a class="back" href="index.html">← QRS home</a>
-    <div class="eyebrow">v0.1.3 · Acquisition hot path</div>
+    <div class="eyebrow">v0.1.4 · Tail and motion</div>
     <h1>Receive a file</h1>
     <section class="panel">
       <div class="controls">
@@ -22,13 +22,19 @@
             <option value="user">Front camera</option>
           </select>
         </label>
-        <label>Alignment box <output id="roiValue">384 px</output>
-          <input id="roiSize" type="range" min="256" max="448" step="8" value="384" disabled>
-        </label>
-        <label>Minimum cell contrast <output id="contrastValue">24</output>
-          <input id="minimumContrast" type="range" min="12" max="80" step="4" value="24">
-        </label>
       </div>
+      <details class="advanced-controls">
+        <summary>Advanced acquisition controls</summary>
+        <div class="controls">
+          <label>Manual alignment box <output id="roiValue">384 px</output>
+            <input id="roiSize" type="range" min="256" max="448" step="8" value="384" disabled>
+          </label>
+          <label>Minimum cell contrast <output id="contrastValue">24</output>
+            <input id="minimumContrast" type="range" min="12" max="80" step="4" value="24">
+          </label>
+        </div>
+        <p class="control-note">The alignment size is used only when automatic tracking is disabled. These controls remain exposed for field testing.</p>
+      </details>
       <div class="actions">
         <button id="camera">Start camera</button>
         <button id="stop" class="secondary" disabled>Stop camera</button>
@@ -47,6 +53,6 @@
     <div class="matrix-shell"><canvas id="preview" width="640" height="480" aria-label="Camera preview and QRS alignment guide"></canvas></div>
     <video id="video" class="sr-only-video" playsinline muted></video>
   </main>
-  <script type="module" src="receiver.js?v=hotpath-1"></script>
+  <script type="module" src="receiver.js?v=tail-motion-1"></script>
 </body>
 </html>

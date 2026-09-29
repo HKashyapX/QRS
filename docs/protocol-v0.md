@@ -62,7 +62,8 @@ dependencies for the selected FEC codec.
 
 The current live schedule sends an initial four-frame manifest burst, then periodically repeats the
 manifest every 24 logical frames. Between manifests, two systematic symbols are sent for every new
-repair symbol. Systematic IDs cycle continuously through `0..K-1`; repair IDs increase from `K`.
+repair symbol. Systematic IDs cycle continuously through `0..K-1`; dense repair IDs increase from
+`0x80000000`.
 This schedule is required because a simplex receiver may lock after the first systematic pass and
 cannot request retransmission.
 
@@ -102,7 +103,7 @@ For symbol IDs `0 <= ID < K`, the symbol payload is source symbol `ID` unchanged
 
 ### Repair symbols
 
-For `ID >= K`, initialize a 64-bit SplitMix64 state as:
+For `K <= ID < 0x80000000`, initialize a 64-bit SplitMix64 state as:
 
 ```text
 state = 0x5152532D4C542D30 XOR ID
@@ -130,7 +131,14 @@ Using `roll = next() mod 100`, select degree:
 The degree is capped at `K`. Repeatedly select `next() mod K`, discarding duplicate indices, until
 the degree is reached. Sort the selected indices and XOR the corresponding source symbols.
 
-The receiver uses peeling propagation, rejects duplicate symbol IDs, and bounds stored equations.
+For `ID >= 0x80000000`, initialize the same SplitMix64 state. Begin with `ceil(K / 2)` and, when
+that value is even and below `K`, add one so the fixed row weight is odd. Select that many distinct
+dependencies with repeated `next() mod K` draws. These dense repair rows are reserved for tail
+recovery. The browser schedule emits increasing dense IDs beginning at `0x80000000`.
+
+The receiver uses peeling propagation first, rejects duplicate symbol IDs, and bounds stored
+equations. When at most 64 source symbols remain and at least that many equations are retained, it
+performs GF(2) elimination on the tail system and resumes peeling.
 
 ## 7. Session rules
 

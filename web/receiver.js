@@ -8,13 +8,13 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=hotpath-1";
+} from "./qrs-core.js?v=tail-motion-1";
 import {
   OpticalTracker,
   OrderedPhasePairer,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js?v=hotpath-1";
+} from "./acquisition.js?v=tail-motion-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -59,7 +59,8 @@ let manifest = null;
 let decoder = null;
 let validFrames = 0;
 let downloadUrl = null;
-let markerLocked = false;
+let lastTrackedAt = -Infinity;
+let lastMarkerLockAt = -Infinity;
 let activeQuad = null;
 const tracker = new OpticalTracker();
 const sampledCells = new Uint8Array(GRID_SIZE * GRID_SIZE);
@@ -73,6 +74,9 @@ const counters = {
   manifests: 0,
   dataFrames: 0,
   uniqueSymbols: 0,
+  duplicateSymbols: 0,
+  systematicDataFrames: 0,
+  repairDataFrames: 0,
   acquisitions: 0,
   acquisitionMisses: 0,
   geometryRejects: 0,
@@ -100,6 +104,8 @@ let lastDiagnosticError = "none";
 const DETECTION_INTERVAL_MS = 200;
 const MARKER_FAILURES_BEFORE_REACQUIRE = 3;
 const DIAGNOSTICS_INTERVAL_MS = 250;
+const TRACK_LOCK_HOLD_MS = 500;
+const MARKER_LOCK_HOLD_MS = 600;
 
 function currentRoi() {
   const size = Number(roiSizeInput.value);
@@ -158,9 +164,11 @@ function acquireGrid(now) {
   };
 }
 
-function drawGuide(locked = false, quad = null) {
+function drawGuide(now = performance.now(), quad = null) {
   const guide = quad ?? manualQuad();
-  context.strokeStyle = locked ? "#6ee7b7" : "#fbbf24";
+  const trackedRecently = autoTrackInput.checked && now - lastTrackedAt <= TRACK_LOCK_HOLD_MS;
+  const decodedRecently = now - lastMarkerLockAt <= MARKER_LOCK_HOLD_MS;
+  context.strokeStyle = trackedRecently ? "#6ee7b7" : "#fbbf24";
   context.lineWidth = 3;
   context.beginPath();
   context.moveTo(guide[0].x, guide[0].y);
@@ -174,7 +182,9 @@ function drawGuide(locked = false, quad = null) {
   context.font = "600 15px system-ui";
   context.textAlign = "center";
   const message = autoTrackInput.checked
-    ? (quad ? "Optical frame tracked — normal hand movement is okay" : "Show the complete white square and black surround")
+    ? (trackedRecently
+      ? (decodedRecently ? "Frame tracked — decoding clean phases" : "Frame tracked — waiting for a clean phase")
+      : "Show the complete white square and black surround")
     : "Manual fallback: align the outer white square inside this guide";
   context.fillText(message, canvas.width / 2, top - 11);
 }
@@ -198,10 +208,18 @@ function acceptFrame(frame) {
   }
   if (frame.type !== FRAME_TYPE.DATA || frame.sessionId !== activeSession || !decoder) return;
   counters.dataFrames += 1;
+  if (frame.symbolId < decoder.sourceSymbolCount) counters.systematicDataFrames += 1;
+  else counters.repairDataFrames += 1;
   if (decoder.add(frame.symbolId, frame.payload)) counters.uniqueSymbols += 1;
+  else counters.duplicateSymbols += 1;
   progress.value = decoder.sourceSymbolCount
     ? Math.min(100, (decoder.resolvedCount / decoder.sourceSymbolCount) * 100)
     : 100;
+  if (!decoder.complete) {
+    status.textContent = progress.value >= 90
+      ? "Final recovery phase. Collecting the last missing source symbols and repair equations…"
+      : "Receiving data symbols…";
+  }
   if (decoder.complete && download.hidden) {
     const object = decoder.recover();
     downloadUrl = URL.createObjectURL(new Blob([object], { type: "application/octet-stream" }));
@@ -223,7 +241,7 @@ function processOpticalGrid(cells, acquisition) {
     counters.classificationTime += performance.now() - classificationStarted;
   }
   consecutiveMarkerFailures = 0;
-  markerLocked = true;
+  lastMarkerLockAt = performance.now();
   counters.markerLocks += 1;
   counters.markerContrastTotal += classification.contrast;
   counters.markerContrastMinimum = Math.min(counters.markerContrastMinimum, classification.contrast);
@@ -321,7 +339,8 @@ function updateDiagnostics(force = false) {
       ? `${(counters.acceptedWeakCells / validFrames).toFixed(1)}/${counters.acceptedWeakCellsMaximum}`
       : "0/0"}`,
     `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
-    `unique data symbols: ${counters.uniqueSymbols}`,
+    `accepted source/repair frames: ${counters.systematicDataFrames}/${counters.repairDataFrames}`,
+    `unique/duplicate data symbols: ${counters.uniqueSymbols}/${counters.duplicateSymbols}`,
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
     `estimated resolved goodput: ${(resolvedBytes / elapsedSeconds).toFixed(1)} bytes/s`,
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
@@ -367,20 +386,22 @@ function processVideoFrame(now, metadata) {
     try {
       const acquisition = acquireGrid(now);
       activeQuad = acquisition.quad;
+      lastTrackedAt = now;
       processOpticalGrid(acquisition.cells, acquisition);
     } catch (error) {
-      markerLocked = false;
       counters.markerFailures += 1;
       consecutiveMarkerFailures += 1;
       recordError(error);
-      confidenceMetric.textContent = "No marker lock";
+      confidenceMetric.textContent = now - lastTrackedAt <= TRACK_LOCK_HOLD_MS
+        ? "Frame tracked · waiting for clean phase"
+        : "No optical frame lock";
       if (/frame not found/i.test(lastDiagnosticError)
         || consecutiveMarkerFailures >= MARKER_FAILURES_BEFORE_REACQUIRE) {
         lastDetectionAt = -Infinity;
         consecutiveMarkerFailures = 0;
       }
     }
-    drawGuide(markerLocked, activeQuad);
+    drawGuide(now, activeQuad);
     const processingTime = performance.now() - processingStart;
     processingTotal += processingTime;
     processingMaximum = Math.max(processingMaximum, processingTime);
@@ -417,7 +438,8 @@ function resetTransfer() {
   manifest = null;
   decoder = null;
   validFrames = 0;
-  markerLocked = false;
+  lastTrackedAt = -Infinity;
+  lastMarkerLockAt = -Infinity;
   activeQuad = null;
   tracker.reset();
   errorCounts.clear();
@@ -430,6 +452,7 @@ function resetTransfer() {
   lastDiagnosticsAt = -Infinity;
   consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
+  counters.markerContrastMinimum = 255;
   lastDiagnosticError = "none";
   progress.value = 0;
   sessionMetric.textContent = "Waiting for manifest";
@@ -448,7 +471,7 @@ resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
   updateDiagnostics(true);
   const report = [
-    "QRS v0.1.3 acquisition hot-path diagnostics",
+    "QRS v0.1.4 tail-motion diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,
@@ -495,5 +518,5 @@ stopButton.addEventListener("click", () => {
 
 context.fillStyle = "#020807";
 context.fillRect(0, 0, canvas.width, canvas.height);
-drawGuide(false);
+drawGuide();
 updateDiagnostics(true);

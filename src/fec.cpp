@@ -1,11 +1,14 @@
 #include "qrs/fec.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 
 namespace qrs {
 namespace {
+
+constexpr std::uint32_t dense_repair_flag = 0x80000000U;
 
 std::uint64_t splitmix64(std::uint64_t& state) noexcept {
     state += 0x9e3779b97f4a7c15ULL;
@@ -21,6 +24,21 @@ std::vector<std::uint32_t> dependencies_for(const std::uint32_t symbol_id,
     if (symbol_id < source_count) return {symbol_id};
 
     std::uint64_t state = 0x5152532d4c542d30ULL ^ symbol_id;
+    if (symbol_id >= dense_repair_flag) {
+        auto degree = std::max<std::uint32_t>(1, (source_count + 1U) / 2U);
+        if (degree % 2U == 0 && degree < source_count) ++degree;
+        std::vector<std::uint32_t> dependencies;
+        dependencies.reserve(degree);
+        while (dependencies.size() < degree) {
+            const auto candidate = static_cast<std::uint32_t>(splitmix64(state) % source_count);
+            if (std::find(dependencies.begin(), dependencies.end(), candidate) ==
+                dependencies.end()) {
+                dependencies.push_back(candidate);
+            }
+        }
+        std::sort(dependencies.begin(), dependencies.end());
+        return dependencies;
+    }
     const auto roll = splitmix64(state) % 100ULL;
     std::uint32_t degree = 1;
     if (roll >= 45 && roll < 80) {
@@ -50,6 +68,15 @@ std::vector<std::uint32_t> dependencies_for(const std::uint32_t symbol_id,
 void xor_into(std::vector<std::uint8_t>& destination,
               const std::span<const std::uint8_t> source) {
     for (std::size_t i = 0; i < destination.size(); ++i) destination[i] ^= source[i];
+}
+
+std::vector<std::uint32_t> xor_dependencies(const std::vector<std::uint32_t>& left,
+                                            const std::vector<std::uint32_t>& right) {
+    std::vector<std::uint32_t> result;
+    result.reserve(left.size() + right.size());
+    std::set_symmetric_difference(left.begin(), left.end(), right.begin(), right.end(),
+                                  std::back_inserter(result));
+    return result;
 }
 
 void validate_parameters(const FecParameters& parameters) {
@@ -129,6 +156,7 @@ bool LtDecoder::add(const std::uint32_t symbol_id,
                                                                           maximum_equations));
     }
     propagate();
+    solve_tail();
     return true;
 }
 
@@ -160,6 +188,48 @@ void LtDecoder::propagate() {
             return equation.dependencies.empty();
         });
     }
+}
+
+void LtDecoder::solve_tail() {
+    const auto unresolved_count = parameters_.source_symbol_count - resolved_count_;
+    if (unresolved_count == 0 || unresolved_count > 64 || equations_.size() < unresolved_count) {
+        return;
+    }
+
+    std::vector<std::optional<Equation>> pivots(parameters_.source_symbol_count);
+    for (const auto& equation : equations_) {
+        auto row = equation;
+        while (!row.dependencies.empty()) {
+            const auto pivot = row.dependencies.front();
+            if (!pivots[pivot]) {
+                pivots[pivot] = std::move(row);
+                break;
+            }
+            row.dependencies = xor_dependencies(row.dependencies, pivots[pivot]->dependencies);
+            xor_into(row.payload, pivots[pivot]->payload);
+        }
+    }
+
+    for (std::size_t pivot = pivots.size(); pivot-- > 0;) {
+        if (!pivots[pivot]) continue;
+        for (std::size_t other = 0; other < pivot; ++other) {
+            if (!pivots[other] ||
+                !std::binary_search(pivots[other]->dependencies.begin(),
+                                    pivots[other]->dependencies.end(),
+                                    static_cast<std::uint32_t>(pivot))) {
+                continue;
+            }
+            pivots[other]->dependencies =
+                xor_dependencies(pivots[other]->dependencies, pivots[pivot]->dependencies);
+            xor_into(pivots[other]->payload, pivots[pivot]->payload);
+        }
+    }
+
+    equations_.clear();
+    for (auto& pivot : pivots) {
+        if (pivot) equations_.push_back(std::move(*pivot));
+    }
+    propagate();
 }
 
 bool LtDecoder::complete() const noexcept {
