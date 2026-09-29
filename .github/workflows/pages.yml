@@ -9,6 +9,7 @@ on:
       - codex/qrs-v0.1.1-optical-envelope
       - codex/qrs-v0.1.2-throughput
       - codex/qrs-v0.1.3-acquisition-hotpath
+      - codex/qrs-v0.1.4-tail-motion
     paths:
       - web/**
       - .github/workflows/pages.yml
