@@ -193,27 +193,56 @@ export function projectPoint(transform, u, v) {
   };
 }
 
-export function samplePerspectiveGrid(imageData, quad, gridSize, quietCells = 0) {
+const SAMPLING_LUTS = new Map();
+
+function samplingLut(gridSize, quietCells) {
+  const key = `${gridSize}:${quietCells}`;
+  let lut = SAMPLING_LUTS.get(key);
+  if (lut) return lut;
   const fullGrid = gridSize + quietCells * 2;
+  const offsetsX = [-0.18, 0.18, 0, -0.18, 0.18];
+  const offsetsY = [-0.18, -0.18, 0, 0.18, 0.18];
+  lut = {
+    x: offsetsX.map((offset) => Float64Array.from(
+      { length: gridSize },
+      (_, x) => (x + quietCells + 0.5 + offset) / fullGrid,
+    )),
+    y: offsetsY.map((offset) => Float64Array.from(
+      { length: gridSize },
+      (_, y) => (y + quietCells + 0.5 + offset) / fullGrid,
+    )),
+  };
+  SAMPLING_LUTS.set(key, lut);
+  return lut;
+}
+
+export function samplePerspectiveGrid(imageData, quad, gridSize, quietCells = 0, output = null) {
   const transform = squareToQuad(quad);
-  const cells = new Uint8Array(gridSize * gridSize);
-  const offsets = [
-    [-0.18, -0.18], [0.18, -0.18], [0, 0], [-0.18, 0.18], [0.18, 0.18],
-  ];
+  const cells = output ?? new Uint8Array(gridSize * gridSize);
+  if (cells.length !== gridSize * gridSize) throw new Error("Sampling output has the wrong size");
+  const { a, b, c, d, e, f, g, h } = transform;
+  const data = imageData.data;
+  const width = imageData.width;
+  const height = imageData.height;
+  const minimumX = 0;
+  const minimumY = 0;
+  const maximumX = width - 1;
+  const maximumY = height - 1;
+  const { x: normalizedX, y: normalizedY } = samplingLut(gridSize, quietCells);
   for (let y = 0; y < gridSize; y += 1) {
     for (let x = 0; x < gridSize; x += 1) {
       let sum = 0;
-      let samples = 0;
-      for (const [offsetX, offsetY] of offsets) {
-        const u = (x + quietCells + 0.5 + offsetX) / fullGrid;
-        const v = (y + quietCells + 0.5 + offsetY) / fullGrid;
-        const point = projectPoint(transform, u, v);
-        const sourceX = Math.max(0, Math.min(imageData.width - 1, Math.round(point.x)));
-        const sourceY = Math.max(0, Math.min(imageData.height - 1, Math.round(point.y)));
-        sum += luminance(imageData.data, (sourceY * imageData.width + sourceX) * 4);
-        samples += 1;
+      for (let sample = 0; sample < 5; sample += 1) {
+        const u = normalizedX[sample][x];
+        const v = normalizedY[sample][y];
+        const denominator = g * u + h * v + 1;
+        const projectedX = Math.round((a * u + b * v + c) / denominator);
+        const projectedY = Math.round((d * u + e * v + f) / denominator);
+        const sourceX = Math.max(minimumX, Math.min(maximumX, projectedX));
+        const sourceY = Math.max(minimumY, Math.min(maximumY, projectedY));
+        sum += luminance(data, (sourceY * width + sourceX) * 4);
       }
-      cells[y * gridSize + x] = Math.round(sum / samples);
+      cells[y * gridSize + x] = Math.round(sum / 5);
     }
   }
   return cells;

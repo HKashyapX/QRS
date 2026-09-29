@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone: v0.1.2 Throughput Recovery
+## Current milestone: v0.1.3 Acquisition Hot Path
 
 The Protocol v0 core provides:
 
@@ -28,6 +28,9 @@ The Protocol v0 core provides:
 - A fullscreen-safe black guard around the detected white symbol boundary.
 - Camera-frame-synchronized processing and tracked-homography reuse.
 - Retryable A/B phase windows that retain clean A candidates until a B observation decodes.
+- Allocation-light perspective sampling with cached coordinate lookup tables and a reusable cell buffer.
+- CRC-guarded tolerance for a bounded number of weak differential cells.
+- A camera-range marker classifier backed by marker errors, phase pilot checks, and frame CRC.
 - Continuous systematic-symbol cycling mixed with fresh fountain repair symbols.
 - Initial manifest bursts so receivers can bind before the systematic stream advances.
 - Geometry-aware rejection when the camera moves between differential phases.
@@ -82,6 +85,9 @@ the alignment-box slider as a controlled fallback.
 
 Follow the complete [two-device test procedure](docs/two-device-test.md) and retain the receiver
 diagnostics from each attempt.
+
+The current field-test rationale and acceptance targets are recorded in
+[`docs/v0.1.3-acquisition-hotpath.md`](docs/v0.1.3-acquisition-hotpath.md).
 
 To build the original OpenCV prototype as `qrs_phase1`:
 

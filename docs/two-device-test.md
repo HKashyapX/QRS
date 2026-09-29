@@ -1,6 +1,6 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.1.2 automatic optical acquisition and throughput recovery. It does not validate encryption,
+This procedure validates v0.1.3 automatic optical acquisition and the acquisition hot path. It does not validate encryption,
 colour symbols, or hostile lighting performance.
 
 ## Equipment
@@ -95,6 +95,7 @@ camera settings, actual camera rate, processing latency, valid logical-frame rat
 - Manifest/data frames.
 - Resolved symbols and total symbols.
 - Camera frame rate and average/maximum processing time.
+- Hot-path capture, detection, sampling, classification, and pairing time.
 - Detector runs versus reused tracks, plus the ranked top-error line.
 - Whether the downloaded bytes matched the original.
 

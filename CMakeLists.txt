@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(qrs VERSION 0.1.2 LANGUAGES CXX)
+project(qrs VERSION 0.1.3 LANGUAGES CXX)
 
 option(QRS_BUILD_LEGACY "Build the original OpenCV phase 1 prototype" OFF)
 

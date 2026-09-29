@@ -37,6 +37,31 @@ assert.equal(canonicalB.inverted, true, "phase pilot should identify phase B");
 assert.equal(canonicalA.rotation, canonicalB.rotation, "static anchors should give both phases the same orientation");
 assert.equal(canonicalA.mirrored, canonicalB.mirrored, "static anchors should give both phases the same reflection");
 
+const compressedA = Uint8Array.from(phaseA, (value) => (value ? 130 : 110));
+assert.equal(classifyOptical(compressedA).inverted, false,
+  "orientation should survive a camera-compressed 20-level luminance range");
+
+const locallyWeakB = phaseB.slice();
+for (let y = 20; y < 30; y += 1) {
+  for (let x = 20; x < 30; x += 1) {
+    locallyWeakB[y * 64 + x] = phaseA[y * 64 + x] > phaseB[y * 64 + x] ? 235 : 20;
+  }
+}
+const weakButValid = decodeOpticalPair(canonicalA, classifyOptical(locallyWeakB), 24);
+assert.deepEqual(weakButValid.payload, originalFrame.payload,
+  "a bounded number of correctly signed weak cells should defer to the frame CRC");
+
+const weakAndWrongB = phaseB.slice();
+let corruptedCell = -1;
+for (let x = 9; x < 55 && corruptedCell < 0; x += 1) {
+  const index = 64 + x;
+  if (phaseA[index] === 255) corruptedCell = index;
+}
+assert.ok(corruptedCell >= 0, "test frame should expose an early white data bit");
+weakAndWrongB[corruptedCell] = phaseA[corruptedCell];
+assert.throws(() => decodeOpticalPair(canonicalA, classifyOptical(weakAndWrongB), 24),
+  /frame|CRC/i, "weak-cell tolerance must not bypass frame integrity");
+
 const noisyMarkers = phaseA.slice();
 for (const [x, y] of [[3, 3], [60, 3], [3, 60], [60, 60], [1, 20], [62, 40]]) {
   noisyMarkers[y * 64 + x] = 255 - noisyMarkers[y * 64 + x];

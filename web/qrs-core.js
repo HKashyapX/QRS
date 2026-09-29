@@ -395,7 +395,7 @@ export function transformOpticalMatrix(canonical, rotation = 0, mirrored = false
   return observed;
 }
 
-export function classifyOptical(cells) {
+export function classifyOptical(cells, { minimumMarkerContrast = 12 } = {}) {
   let best = null;
   for (let rotation = 0; rotation < 4; rotation += 1) {
     for (const mirrored of [false, true]) {
@@ -430,7 +430,11 @@ export function classifyOptical(cells) {
       }
     }
   }
-  if (best.contrast < 28) throw new Error("Orientation marker contrast is too low");
+  // The old 28-level floor rejected more than 40% of all camera frames in the
+  // first v0.1.2 field run. Orientation is also guarded by the marker error
+  // budget, phase pilot and the frame CRC, so a lower floor is safe while the
+  // display/camera pair is operating in a compressed luminance range.
+  if (best.contrast < minimumMarkerContrast) throw new Error("Orientation marker contrast is too low");
   if (best.errors > ORIENTATION_COUNT / 4) throw new Error("Orientation markers were not recognized");
   const normalized = new Uint8Array(cells.length);
   for (let y = 0; y < GRID_SIZE; y += 1) {
@@ -457,24 +461,36 @@ export function classifyOptical(cells) {
   return { ...best, inverted, phaseErrors, normalized, contrast: Math.round(best.contrast) };
 }
 
-export function decodeOpticalPair(firstClassification, secondClassification, minimumContrast = 32) {
+export function decodeOpticalPair(
+  firstClassification,
+  secondClassification,
+  minimumContrast = 32,
+  maximumWeakCellRatio = 0.08,
+) {
   if (firstClassification.inverted === secondClassification.inverted) {
     throw new Error("Two identical optical phases cannot form a pair");
   }
   const phaseA = firstClassification.inverted ? secondClassification.normalized : firstClassification.normalized;
   const phaseB = firstClassification.inverted ? firstClassification.normalized : secondClassification.normalized;
   const decoded = new Uint8Array(OPTICAL_CAPACITY_BYTES);
+  let weakCells = 0;
   for (let bit = 0; bit < decoded.length * 8; bit += 1) {
     const [x, y] = DATA_COORDINATES[bit];
     const a = phaseA[y * GRID_SIZE + x];
     const b = phaseB[y * GRID_SIZE + x];
-    if (Math.abs(a - b) < minimumContrast) throw new Error("Cell contrast is too low");
+    if (Math.abs(a - b) < minimumContrast) weakCells += 1;
     if (a > b) decoded[Math.floor(bit / 8)] |= 1 << (7 - (bit % 8));
+  }
+  if (weakCells > decoded.length * 8 * maximumWeakCellRatio) {
+    throw new Error("Cell contrast is too low");
   }
   const payloadLength = new DataView(decoded.buffer).getUint16(20, false);
   const frameLength = FRAME_HEADER_SIZE + payloadLength + FRAME_TRAILER_SIZE;
   if (frameLength > decoded.length) throw new Error("Decoded frame length exceeds capacity");
-  return parseFrame(decoded.slice(0, frameLength));
+  return {
+    ...parseFrame(decoded.slice(0, frameLength)),
+    opticalWeakCells: weakCells,
+  };
 }
 
 export function drawOpticalMatrix(canvas, cells) {

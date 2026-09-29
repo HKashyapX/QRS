@@ -8,13 +8,13 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=throughput-1";
+} from "./qrs-core.js?v=hotpath-1";
 import {
   OpticalTracker,
   OrderedPhasePairer,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js?v=throughput-1";
+} from "./acquisition.js?v=hotpath-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -50,6 +50,7 @@ let firstCameraFrameAt = 0;
 let lastCameraFrameAt = 0;
 let processingTotal = 0;
 let processingMaximum = 0;
+let lastDiagnosticsAt = -Infinity;
 let cameraSettings = "not started";
 let consecutiveMarkerFailures = 0;
 const phasePairer = new OrderedPhasePairer();
@@ -61,6 +62,7 @@ let downloadUrl = null;
 let markerLocked = false;
 let activeQuad = null;
 const tracker = new OpticalTracker();
+const sampledCells = new Uint8Array(GRID_SIZE * GRID_SIZE);
 const counters = {
   sampled: 0,
   markerLocks: 0,
@@ -83,11 +85,21 @@ const counters = {
   duplicateCallbacks: 0,
   detectionRuns: 0,
   reusedTracks: 0,
+  captureTime: 0,
+  detectionTime: 0,
+  samplingTime: 0,
+  classificationTime: 0,
+  pairTime: 0,
+  markerContrastTotal: 0,
+  markerContrastMinimum: 255,
+  acceptedWeakCells: 0,
+  acceptedWeakCellsMaximum: 0,
 };
 const errorCounts = new Map();
 let lastDiagnosticError = "none";
 const DETECTION_INTERVAL_MS = 200;
-const MARKER_FAILURES_BEFORE_REACQUIRE = 6;
+const MARKER_FAILURES_BEFORE_REACQUIRE = 3;
+const DIAGNOSTICS_INTERVAL_MS = 250;
 
 function currentRoi() {
   const size = Number(roiSizeInput.value);
@@ -112,16 +124,23 @@ function drawVideoCover() {
 }
 
 function acquireGrid(now) {
+  const captureStarted = performance.now();
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
+  counters.captureTime += performance.now() - captureStarted;
   if (!autoTrackInput.checked) {
     const quad = manualQuad();
-    return { cells: samplePerspectiveGrid(image, quad, GRID_SIZE, QUIET_CELLS), quad, confidence: 1, stale: false };
+    const samplingStarted = performance.now();
+    const cells = samplePerspectiveGrid(image, quad, GRID_SIZE, QUIET_CELLS, sampledCells);
+    counters.samplingTime += performance.now() - samplingStarted;
+    return { cells, quad, confidence: 1, stale: false };
   }
   let acquisition = tracker.current();
   if (!acquisition || now - lastDetectionAt >= DETECTION_INTERVAL_MS) {
     counters.detectionRuns += 1;
     lastDetectionAt = now;
+    const detectionStarted = performance.now();
     acquisition = tracker.locate(image);
+    counters.detectionTime += performance.now() - detectionStarted;
   } else {
     counters.reusedTracks += 1;
   }
@@ -130,9 +149,12 @@ function acquireGrid(now) {
     throw new Error("Optical frame not found");
   }
   counters.acquisitions += 1;
+  const samplingStarted = performance.now();
+  const cells = samplePerspectiveGrid(image, acquisition.quad, GRID_SIZE, QUIET_CELLS, sampledCells);
+  counters.samplingTime += performance.now() - samplingStarted;
   return {
     ...acquisition,
-    cells: samplePerspectiveGrid(image, acquisition.quad, GRID_SIZE, QUIET_CELLS),
+    cells,
   };
 }
 
@@ -193,10 +215,18 @@ function acceptFrame(frame) {
 
 function processOpticalGrid(cells, acquisition) {
   counters.sampled += 1;
-  const classification = classifyOptical(cells);
+  const classificationStarted = performance.now();
+  let classification;
+  try {
+    classification = classifyOptical(cells);
+  } finally {
+    counters.classificationTime += performance.now() - classificationStarted;
+  }
   consecutiveMarkerFailures = 0;
   markerLocked = true;
   counters.markerLocks += 1;
+  counters.markerContrastTotal += classification.contrast;
+  counters.markerContrastMinimum = Math.min(counters.markerContrastMinimum, classification.contrast);
   confidenceMetric.textContent = `Marker errors ${classification.errors} · contrast ${classification.contrast}`;
   if (classification.inverted) counters.phaseB += 1;
   else counters.phaseA += 1;
@@ -218,33 +248,42 @@ function processOpticalGrid(cells, acquisition) {
 
   let lastError = null;
   let geometryCandidates = 0;
+  const pairStarted = performance.now();
   for (const [phaseA, phaseB] of pairing.pairs) {
     if (quadMotion(phaseA.quad, phaseB.quad) > 0.055) continue;
     geometryCandidates += 1;
     try {
       const frame = decodeOpticalPair(phaseA.classification, phaseB.classification, Number(minimumContrastInput.value));
+      counters.acceptedWeakCells += frame.opticalWeakCells;
+      counters.acceptedWeakCellsMaximum = Math.max(counters.acceptedWeakCellsMaximum, frame.opticalWeakCells);
       acceptFrame(frame);
       phasePairer.complete();
       validFrames += 1;
       if (pairing.attempt > 1) counters.recoveredAfterRetry += 1;
       frameMetric.textContent = `${validFrames} valid frames`;
       lastDiagnosticError = "none";
+      counters.pairTime += performance.now() - pairStarted;
       return true;
     } catch (error) {
       lastError = error;
     }
   }
   if (!geometryCandidates) {
+    counters.pairTime += performance.now() - pairStarted;
     counters.geometryRejects += 1;
     lastDiagnosticError = "Camera moved between differential phases";
     return false;
   }
   counters.pairRejects += 1;
+  counters.pairTime += performance.now() - pairStarted;
   recordError(lastError ?? new Error("Optical pair could not be decoded"));
   return false;
 }
 
-function updateDiagnostics() {
+function updateDiagnostics(force = false) {
+  const diagnosticsNow = performance.now();
+  if (!force && diagnosticsNow - lastDiagnosticsAt < DIAGNOSTICS_INTERVAL_MS) return;
+  lastDiagnosticsAt = diagnosticsNow;
   const elapsedSeconds = Math.max(0.001, (lastCameraFrameAt - firstCameraFrameAt) / 1000);
   const observedFps = counters.cameraFrames > 1 ? (counters.cameraFrames - 1) / elapsedSeconds : 0;
   const averageProcessing = counters.cameraFrames ? processingTotal / counters.cameraFrames : 0;
@@ -262,12 +301,25 @@ function updateDiagnostics() {
     `camera settings: ${cameraSettings}`,
     `duplicate camera callbacks: ${counters.duplicateCallbacks}`,
     `processing avg/max: ${averageProcessing.toFixed(1)} / ${processingMaximum.toFixed(1)} ms`,
-    `processing load: ${observedFps ? Math.min(999, averageProcessing * observedFps).toFixed(0) : 0} ms/s`,
+    `processing load: ${observedFps ? (averageProcessing * observedFps).toFixed(0) : 0} ms/s`,
+    `hot path avg capture/detect/sample/classify/pair: ${[
+      counters.cameraFrames ? counters.captureTime / counters.cameraFrames : 0,
+      counters.detectionRuns ? counters.detectionTime / counters.detectionRuns : 0,
+      counters.sampled ? counters.samplingTime / counters.sampled : 0,
+      counters.sampled ? counters.classificationTime / counters.sampled : 0,
+      counters.phasePairObservations ? counters.pairTime / counters.phasePairObservations : 0,
+    ].map((value) => value.toFixed(1)).join("/")} ms`,
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
+    `marker contrast avg/min: ${counters.markerLocks
+      ? `${(counters.markerContrastTotal / counters.markerLocks).toFixed(1)}/${counters.markerContrastMinimum}`
+      : "0/0"}`,
     `phase A/B observations: ${counters.phaseA}/${counters.phaseB}`,
     `valid/rejected pairs: ${validFrames}/${counters.pairRejects} (${validRate.toFixed(2)} valid/s)`,
     `pair observations/retries/recovered: ${counters.phasePairObservations}/${counters.phasePairRetries}/${counters.recoveredAfterRetry}`,
+    `accepted weak cells avg/max: ${validFrames
+      ? `${(counters.acceptedWeakCells / validFrames).toFixed(1)}/${counters.acceptedWeakCellsMaximum}`
+      : "0/0"}`,
     `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
     `unique data symbols: ${counters.uniqueSymbols}`,
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
@@ -375,6 +427,7 @@ function resetTransfer() {
   lastCameraFrameAt = 0;
   processingTotal = 0;
   processingMaximum = 0;
+  lastDiagnosticsAt = -Infinity;
   consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
   lastDiagnosticError = "none";
@@ -388,13 +441,14 @@ function resetTransfer() {
   status.textContent = running
     ? "Transfer state reset. Keep the matrix aligned to acquire a new manifest."
     : "Transfer state reset. Start the camera when ready.";
-  updateDiagnostics();
+  updateDiagnostics(true);
 }
 
 resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
+  updateDiagnostics(true);
   const report = [
-    "QRS v0.1.2 throughput diagnostics",
+    "QRS v0.1.3 acquisition hot-path diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,
@@ -442,4 +496,4 @@ stopButton.addEventListener("click", () => {
 context.fillStyle = "#020807";
 context.fillRect(0, 0, canvas.width, canvas.height);
 drawGuide(false);
-updateDiagnostics();
+updateDiagnostics(true);

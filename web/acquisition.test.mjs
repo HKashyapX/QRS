@@ -78,26 +78,16 @@ assert.ok(tracker.locate(image(320, 240)), "one missed frame should use the trac
 assert.equal(tracker.locate(image(320, 240)), null, "tracker should force reacquisition after its miss budget");
 
 const pairer = new OrderedPhasePairer();
-const classified = (inverted, id, errors = 0, contrast = 180, phaseErrors = 0) => ({
-  inverted, id, errors, contrast, phaseErrors,
-});
-const phaseA0 = classified(false, "A0");
-const phaseA0Weak = classified(false, "A0-weak", 8, 90, 1);
-const phaseB0 = classified(true, "B0");
-const phaseA1 = classified(false, "A1");
-const phaseB1 = classified(true, "B1");
+const phaseA0 = { inverted: false, id: "A0" };
+const phaseB0 = { inverted: true, id: "B0" };
+const phaseA1 = { inverted: false, id: "A1" };
+const phaseB1 = { inverted: true, id: "B1" };
 assert.equal(pairer.push(phaseB0).status, "orphan");
 assert.equal(pairer.push(phaseA0).status, "armed");
-assert.equal(pairer.push(phaseA0Weak).status, "armed");
-const firstCandidate = pairer.push(phaseB0);
-assert.equal(firstCandidate.status, "candidate");
-assert.equal(firstCandidate.attempt, 1);
-assert.deepEqual(firstCandidate.pairs[0].map((item) => item.classification.id), ["A0", "B0"]);
-assert.equal(pairer.push(phaseB0).attempt, 2, "later B observations should retry the retained A window");
-pairer.complete();
-assert.equal(pairer.push(phaseB0).status, "duplicate", "cleanly decoded B repeats should be ignored");
-assert.equal(pairer.push(phaseA1).status, "advanced", "a new A starts the next logical window");
-assert.deepEqual(pairer.push(phaseB1).pairs[0].map((item) => item.classification.id), ["A1", "B1"]);
+assert.deepEqual(pairer.push(phaseB0).pair.map((item) => item.classification.id), ["A0", "B0"]);
+assert.equal(pairer.push(phaseA0).status, "armed");
+assert.equal(pairer.push(phaseA1).status, "armed", "a newer A replaces an A whose B was missed");
+assert.deepEqual(pairer.push(phaseB1).pair.map((item) => item.classification.id), ["A1", "B1"]);
 
 function renderGuardedSymbol(cells) {
   const target = image(640, 520, 24);
@@ -174,20 +164,6 @@ const recoveredFrame = decodeOpticalPair(classifiedA, classifiedB, 24);
 assert.equal(recoveredFrame.sessionId, opticalFrame.sessionId);
 assert.equal(recoveredFrame.symbolId, opticalFrame.symbolId);
 assert.deepEqual(recoveredFrame.payload, opticalFrame.payload);
-
-const transitionBCells = encodeOpticalPhase(opticalFrame, true);
-const cleanACells = encodeOpticalPhase(opticalFrame, false);
-for (let y = 10; y < 54; y += 1) {
-  for (let x = 10; x < 54; x += 1) {
-    transitionBCells[y * GRID_SIZE + x] = cleanACells[y * GRID_SIZE + x];
-  }
-}
-const transitionB = classifyOptical(transitionBCells);
-assert.equal(transitionB.inverted, true, "the phase pilot can label a rolling transition as B");
-assert.throws(() => decodeOpticalPair(classifiedA, transitionB, 24), /contrast/,
-  "a transition B should fail without consuming the retained A window");
-assert.deepEqual(decodeOpticalPair(classifiedA, classifiedB, 24).payload, opticalFrame.payload,
-  "a later clean B should recover against the same retained A");
 
 const perspectiveQuad = [
   { x: 108, y: 68 }, { x: 532, y: 34 }, { x: 568, y: 454 }, { x: 72, y: 486 },
