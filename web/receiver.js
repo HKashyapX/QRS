@@ -12,9 +12,11 @@ import {
 import {
   OpticalTracker,
   OrderedPhasePairer,
+  previewPointToVideoPoint,
+  quadCellSize,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js?v=tail-motion-1";
+} from "./acquisition.js?v=mobile-optics-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -26,6 +28,7 @@ const progress = document.querySelector("#progress");
 const sessionMetric = document.querySelector("#sessionMetric");
 const frameMetric = document.querySelector("#frameMetric");
 const confidenceMetric = document.querySelector("#confidenceMetric");
+const focusMetric = document.querySelector("#focusMetric");
 const download = document.querySelector("#download");
 const facingModeInput = document.querySelector("#facingMode");
 const roiSizeInput = document.querySelector("#roiSize");
@@ -42,6 +45,7 @@ export function opticalCellCenter(cell, roiSize) {
 }
 
 let stream = null;
+let cameraTrack = null;
 let running = false;
 let frameCallback = null;
 let lastPresentedFrame = -1;
@@ -62,6 +66,11 @@ let downloadUrl = null;
 let lastTrackedAt = -Infinity;
 let lastMarkerLockAt = -Infinity;
 let activeQuad = null;
+let focusModes = [];
+let pointFocusSupported = false;
+let focusState = "not started";
+let focusIndicator = null;
+let focusIndicatorUntil = -Infinity;
 const tracker = new OpticalTracker();
 const sampledCells = new Uint8Array(GRID_SIZE * GRID_SIZE);
 const counters = {
@@ -98,6 +107,12 @@ const counters = {
   markerContrastMinimum: 255,
   acceptedWeakCells: 0,
   acceptedWeakCellsMaximum: 0,
+  modulePixelsTotal: 0,
+  modulePixelsMinimum: Infinity,
+  modulePixelsMaximum: 0,
+  focusRequests: 0,
+  focusSuccesses: 0,
+  focusFailures: 0,
 };
 const errorCounts = new Map();
 let lastDiagnosticError = "none";
@@ -106,6 +121,7 @@ const MARKER_FAILURES_BEFORE_REACQUIRE = 3;
 const DIAGNOSTICS_INTERVAL_MS = 250;
 const TRACK_LOCK_HOLD_MS = 500;
 const MARKER_LOCK_HOLD_MS = 600;
+const FOCUS_INDICATOR_MS = 900;
 
 function currentRoi() {
   const size = Number(roiSizeInput.value);
@@ -187,6 +203,96 @@ function drawGuide(now = performance.now(), quad = null) {
       : "Show the complete white square and black surround")
     : "Manual fallback: align the outer white square inside this guide";
   context.fillText(message, canvas.width / 2, top - 11);
+  if (focusIndicator && now <= focusIndicatorUntil) {
+    context.strokeStyle = "#60a5fa";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(focusIndicator.x, focusIndicator.y, 24, 0, Math.PI * 2);
+    context.moveTo(focusIndicator.x - 32, focusIndicator.y);
+    context.lineTo(focusIndicator.x - 16, focusIndicator.y);
+    context.moveTo(focusIndicator.x + 16, focusIndicator.y);
+    context.lineTo(focusIndicator.x + 32, focusIndicator.y);
+    context.moveTo(focusIndicator.x, focusIndicator.y - 32);
+    context.lineTo(focusIndicator.x, focusIndicator.y - 16);
+    context.moveTo(focusIndicator.x, focusIndicator.y + 16);
+    context.lineTo(focusIndicator.x, focusIndicator.y + 32);
+    context.stroke();
+  }
+}
+
+function focusConstraint(mode, point = null) {
+  const constraint = {};
+  if (mode) constraint.focusMode = mode;
+  if (point && pointFocusSupported) constraint.pointsOfInterest = [point];
+  return constraint;
+}
+
+async function applyFocusConstraint(constraint) {
+  if (!cameraTrack || !Object.keys(constraint).length) return false;
+  const current = { ...(cameraTrack.getConstraints?.() ?? {}) };
+  delete current.advanced;
+  if (constraint.focusMode) current.focusMode = { exact: constraint.focusMode };
+  if (constraint.pointsOfInterest) {
+    current.pointsOfInterest = { exact: constraint.pointsOfInterest };
+  }
+  await cameraTrack.applyConstraints(current);
+  return true;
+}
+
+async function configureCameraFocus() {
+  const capabilities = cameraTrack?.getCapabilities?.() ?? {};
+  const supported = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
+  focusModes = Array.isArray(capabilities.focusMode) ? capabilities.focusMode : [];
+  pointFocusSupported = Boolean(supported.pointsOfInterest);
+  if (focusModes.includes("continuous")) {
+    try {
+      await applyFocusConstraint(focusConstraint("continuous"));
+      focusState = "continuous";
+    } catch (error) {
+      focusState = `browser-managed (${error.name ?? "constraint error"})`;
+    }
+  } else {
+    focusState = focusModes.length ? focusModes.join(",") : "browser-managed";
+  }
+  focusMetric.textContent = pointFocusSupported || focusModes.length
+    ? "Focus: tap the matrix"
+    : "Focus: camera automatic";
+}
+
+async function focusCameraAt(canvasPoint) {
+  if (!running || !cameraTrack) return;
+  counters.focusRequests += 1;
+  focusIndicator = canvasPoint;
+  focusIndicatorUntil = performance.now() + FOCUS_INDICATOR_MS;
+  const point = previewPointToVideoPoint(canvasPoint, {
+    width: canvas.width,
+    height: canvas.height,
+  }, {
+    width: video.videoWidth,
+    height: video.videoHeight,
+  });
+  const mode = focusModes.includes("single-shot")
+    ? "single-shot"
+    : (focusModes.includes("continuous") ? "continuous" : null);
+  const requested = focusConstraint(mode, point);
+  try {
+    if (!await applyFocusConstraint(requested)) throw new Error("Camera exposes no focus controls");
+    counters.focusSuccesses += 1;
+    focusState = `${mode ?? "3A"} @ ${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+    focusMetric.textContent = "Focus: point accepted";
+  } catch (pointError) {
+    try {
+      if (!mode || !await applyFocusConstraint(focusConstraint(mode))) throw pointError;
+      counters.focusSuccesses += 1;
+      focusState = `${mode} (centre fallback)`;
+      focusMetric.textContent = "Focus: centre sweep";
+    } catch (error) {
+      counters.focusFailures += 1;
+      focusState = `unavailable (${error.name ?? error.message})`;
+      focusMetric.textContent = "Focus: browser did not expose control";
+    }
+  }
+  updateDiagnostics(true);
 }
 
 function acceptFrame(frame) {
@@ -235,6 +341,10 @@ function acceptFrame(frame) {
 
 function processOpticalGrid(cells, acquisition) {
   counters.sampled += 1;
+  const modulePixels = quadCellSize(acquisition.quad, DISPLAY_GRID_SIZE);
+  counters.modulePixelsTotal += modulePixels;
+  counters.modulePixelsMinimum = Math.min(counters.modulePixelsMinimum, modulePixels);
+  counters.modulePixelsMaximum = Math.max(counters.modulePixelsMaximum, modulePixels);
   const classificationStarted = performance.now();
   let classification;
   try {
@@ -334,6 +444,9 @@ function updateDiagnostics(force = false) {
     `marker contrast avg/min: ${counters.markerLocks
       ? `${(counters.markerContrastTotal / counters.markerLocks).toFixed(1)}/${counters.markerContrastMinimum}`
       : "0/0"}`,
+    `tracked camera pixels/cell avg/min/max: ${counters.sampled
+      ? `${(counters.modulePixelsTotal / counters.sampled).toFixed(1)}/${counters.modulePixelsMinimum.toFixed(1)}/${counters.modulePixelsMaximum.toFixed(1)}`
+      : "0/0/0"}`,
     `phase A/B observations: ${counters.phaseA}/${counters.phaseB}`,
     `valid/rejected pairs: ${validFrames}/${counters.pairRejects} (${validRate.toFixed(2)} valid/s)`,
     `pair observations/retries/recovered: ${counters.phasePairObservations}/${counters.phasePairRetries}/${counters.recoveredAfterRetry}`,
@@ -351,6 +464,9 @@ function updateDiagnostics(force = false) {
     `geometry pair rejects: ${counters.geometryRejects}`,
     `orphan/duplicate phase B: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
+    `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "yes" : "no"}`,
+    `focus requests/successes/failures: ${counters.focusRequests}/${counters.focusSuccesses}/${counters.focusFailures}`,
+    `focus state: ${focusState}`,
     `last pair error: ${lastDiagnosticError}`,
     `top errors: ${commonErrors}`,
   ].join("\n");
@@ -415,19 +531,28 @@ function processVideoFrame(now, metadata) {
 cameraButton.addEventListener("click", async () => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facingModeInput.value }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+      video: {
+        facingMode: { ideal: facingModeInput.value },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 },
+        advanced: [{ focusMode: "continuous" }],
+      },
       audio: false,
     });
     video.srcObject = stream;
     await video.play();
-    const settings = stream.getVideoTracks()[0]?.getSettings?.() ?? {};
+    [cameraTrack] = stream.getVideoTracks();
+    await configureCameraFocus();
+    const settings = cameraTrack?.getSettings?.() ?? {};
     cameraSettings = `${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight}`
       + `${settings.frameRate ? ` @ ${settings.frameRate} fps` : ""}`
-      + `${settings.facingMode ? ` · ${settings.facingMode}` : ""}`;
+      + `${settings.facingMode ? ` · ${settings.facingMode}` : ""}`
+      + `${settings.focusMode ? ` · focus ${settings.focusMode}` : ""}`;
     running = true;
     cameraButton.disabled = true;
     stopButton.disabled = false;
-    status.textContent = "Camera active. Keep the complete white square and some black surround visible; tracking handles perspective and hand movement.";
+    status.textContent = "Camera active. Tap the matrix to focus, then keep the complete white square and some black surround visible.";
     scheduleVideoFrame();
   } catch (error) {
     status.textContent = `Camera could not start: ${error.message}`;
@@ -443,6 +568,8 @@ function resetTransfer() {
   lastTrackedAt = -Infinity;
   lastMarkerLockAt = -Infinity;
   activeQuad = null;
+  focusIndicator = null;
+  focusIndicatorUntil = -Infinity;
   tracker.reset();
   errorCounts.clear();
   lastPresentedFrame = -1;
@@ -455,11 +582,13 @@ function resetTransfer() {
   consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
   counters.markerContrastMinimum = 255;
+  counters.modulePixelsMinimum = Infinity;
   lastDiagnosticError = "none";
   progress.value = 0;
   sessionMetric.textContent = "Waiting for manifest";
   frameMetric.textContent = "0 valid frames";
   confidenceMetric.textContent = "No lock";
+  focusMetric.textContent = running ? "Focus: tap the matrix" : "Focus: not started";
   if (downloadUrl) URL.revokeObjectURL(downloadUrl);
   downloadUrl = null;
   download.hidden = true;
@@ -473,7 +602,7 @@ resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
   updateDiagnostics(true);
   const report = [
-    "QRS v0.1.4 tail-motion diagnostics",
+    "QRS v0.1.5 mobile-optics diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,
@@ -503,6 +632,15 @@ minimumContrastInput.addEventListener("input", () => {
   contrastValue.textContent = minimumContrastInput.value;
 });
 
+canvas.addEventListener("pointerdown", (event) => {
+  const bounds = canvas.getBoundingClientRect();
+  const point = {
+    x: (event.clientX - bounds.left) * canvas.width / bounds.width,
+    y: (event.clientY - bounds.top) * canvas.height / bounds.height,
+  };
+  void focusCameraAt(point);
+});
+
 stopButton.addEventListener("click", () => {
   running = false;
   if (frameCallback !== null) {
@@ -512,9 +650,11 @@ stopButton.addEventListener("click", () => {
   frameCallback = null;
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
+  cameraTrack = null;
   video.srcObject = null;
   cameraButton.disabled = false;
   stopButton.disabled = true;
+  focusMetric.textContent = "Focus: stopped";
   status.textContent = "Camera stopped.";
 });
 

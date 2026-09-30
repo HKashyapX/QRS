@@ -1,5 +1,6 @@
 import {
   CRYPTO_SUITE,
+  CANVAS_GRID_SIZE,
   FEC_CODEC,
   FRAME_TYPE,
   LtEncoder,
@@ -9,7 +10,7 @@ import {
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=tail-motion-2";
+} from "./qrs-core.js?v=mobile-optics-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");
@@ -20,6 +21,7 @@ const status = document.querySelector("#status");
 const fileMetric = document.querySelector("#fileMetric");
 const symbolMetric = document.querySelector("#symbolMetric");
 const phaseMetric = document.querySelector("#phaseMetric");
+const displayMetric = document.querySelector("#displayMetric");
 const phaseDurationInput = document.querySelector("#phaseDuration");
 const matrixShell = document.querySelector(".matrix-shell");
 
@@ -29,6 +31,22 @@ const SYMBOL_SIZE = 256;
 let selectedFile = null;
 let running = false;
 let animationFrame = null;
+let wakeLock = null;
+
+function updateDisplayMetric() {
+  const bounds = canvas.getBoundingClientRect();
+  const physicalSide = Math.min(bounds.width, bounds.height) * (window.devicePixelRatio || 1);
+  displayMetric.textContent = `${(physicalSide / CANVAS_GRID_SIZE).toFixed(1)} display px/cell`;
+}
+
+async function holdWakeLock() {
+  if (!navigator.wakeLock?.request) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch {
+    wakeLock = null;
+  }
+}
 
 function blankMatrix() {
   const context = canvas.getContext("2d");
@@ -83,6 +101,7 @@ startButton.addEventListener("click", async () => {
   };
 
   running = true;
+  await holdWakeLock();
   startButton.disabled = true;
   stopButton.disabled = false;
   fullscreenButton.disabled = false;
@@ -97,6 +116,8 @@ startButton.addEventListener("click", async () => {
   let nextPhaseAt = performance.now();
   let phaseCount = 0;
   const startedAt = nextPhaseAt;
+  let latePhases = 0;
+  let maximumLateness = 0;
 
   const tick = (now) => {
     if (!running) return;
@@ -105,9 +126,13 @@ startButton.addEventListener("click", async () => {
       return;
     }
     drawOpticalMatrix(canvas, encodeOpticalPhase(currentFrame, inverted));
+    updateDisplayMetric();
     phaseCount += 1;
     const phaseRate = phaseCount > 1 ? (phaseCount - 1) / Math.max(0.001, (now - startedAt) / 1000) : 0;
-    phaseMetric.textContent = `${inverted ? "Phase B" : "Phase A"} · ${phaseRate.toFixed(1)} phases/s`;
+    const lateness = Math.max(0, now - nextPhaseAt);
+    if (lateness > 8) latePhases += 1;
+    maximumLateness = Math.max(maximumLateness, lateness);
+    phaseMetric.textContent = `${inverted ? "Phase B" : "Phase A"} · ${phaseRate.toFixed(1)} phases/s · ${latePhases} late (${maximumLateness.toFixed(0)} ms max)`;
     symbolMetric.textContent = `${systematicFrames} source · ${repairFrames} repair · ${manifestFrames} manifest`;
 
     if (inverted) {
@@ -130,6 +155,8 @@ stopButton.addEventListener("click", () => {
   running = false;
   if (animationFrame) cancelAnimationFrame(animationFrame);
   animationFrame = null;
+  void wakeLock?.release();
+  wakeLock = null;
   stopButton.disabled = true;
   startButton.disabled = !selectedFile;
   fullscreenButton.disabled = true;
@@ -142,3 +169,5 @@ fullscreenButton.addEventListener("click", async () => {
 });
 
 blankMatrix();
+updateDisplayMetric();
+window.addEventListener("resize", updateDisplayMetric);

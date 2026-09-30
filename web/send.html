@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Send — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=tail-motion-1">
+  <link rel="stylesheet" href="styles.css?v=mobile-optics-1">
 </head>
 <body>
   <main>
     <a class="back" href="index.html">← QRS home</a>
-    <div class="eyebrow">v0.1.4 · Tail and motion</div>
+    <div class="eyebrow">v0.1.5 · Mobile optics</div>
     <h1>Send a file</h1>
     <section class="panel">
       <input id="file" type="file">
@@ -32,10 +32,10 @@
         <button id="fullscreen" class="secondary" disabled>Fullscreen matrix</button>
       </div>
       <div id="status" class="status">Choose a file up to 100 KB. Start with 10 KB or less for the first camera test.</div>
-      <div class="metrics"><span id="fileMetric">No file</span><span id="symbolMetric">0 symbols</span><span id="phaseMetric">Idle</span></div>
+      <div class="metrics"><span id="fileMetric">No file</span><span id="symbolMetric">0 symbols</span><span id="phaseMetric">Idle</span><span id="displayMetric">Measuring display cells</span></div>
     </section>
     <div class="matrix-shell" id="matrixShell"><canvas id="matrix" width="912" height="912" aria-label="Animated QRS optical matrix"></canvas></div>
   </main>
-  <script type="module" src="sender.js?v=tail-motion-2"></script>
+  <script type="module" src="sender.js?v=mobile-optics-1"></script>
 </body>
 </html>

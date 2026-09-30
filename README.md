@@ -9,7 +9,7 @@ The repository currently contains two generations of code:
 - `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
 - `qrs_core`: the versioned Protocol v0 transport foundation under active development.
 
-## Current milestone: v0.1.4 Tail and Motion
+## Current milestone: v0.1.5 Mobile Optics
 
 The Protocol v0 core provides:
 
@@ -37,6 +37,9 @@ The Protocol v0 core provides:
 - Geometry-aware rejection when the camera moves between differential phases.
 - A manual alignment fallback and expanded acquisition diagnostics.
 - Tracking-state feedback that does not flicker when a single optical phase is rejected.
+- Capability-aware continuous focus and tap-to-focus with a visible focus reticle.
+- Camera pixels-per-cell and sender display pixels-per-cell diagnostics for phone-to-phone tests.
+- A screen wake lock request while a phone is transmitting.
 
 SHA-256 implementation, encryption, adaptive grid density, and colour symbols are not implemented
 yet. The colour work is deliberately isolated until acquisition is measured across real devices.
@@ -78,7 +81,7 @@ Cloudflare Pages or GitHub Pages; camera access normally does not work from a pl
 
 1. Open `send.html` on the display device and select a file below 10 KB for the first test.
 2. Open `receive.html` on the camera device and permit camera access.
-3. Keep the complete white square and some black surround visible. Green means the outer frame is
+3. Tap the matrix once to request focus, then keep the complete white square and some black surround visible. Green means the outer frame is
    being tracked; individual noisy phases may still be rejected without losing alignment.
 4. Start transmission and hold both devices stable until the receiver exposes the download.
 
@@ -90,7 +93,7 @@ Follow the complete [two-device test procedure](docs/two-device-test.md) and ret
 diagnostics from each attempt.
 
 The current field-test rationale and acceptance targets are recorded in
-[`docs/v0.1.4-tail-motion.md`](docs/v0.1.4-tail-motion.md).
+[`docs/v0.1.5-mobile-optics.md`](docs/v0.1.5-mobile-optics.md).
 
 To build the original OpenCV prototype as `qrs_phase1`:
 

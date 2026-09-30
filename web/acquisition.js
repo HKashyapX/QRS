@@ -23,6 +23,27 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+export function quadCellSize(quad, cellsAcross) {
+  if (!quad || quad.length !== 4 || !Number.isFinite(cellsAcross) || cellsAcross <= 0) return 0;
+  return quad.reduce((sum, point, index) => sum + distance(point, quad[(index + 1) % 4]), 0)
+    / (4 * cellsAcross);
+}
+
+export function previewPointToVideoPoint(point, canvasSize, videoSize) {
+  if (!canvasSize.width || !canvasSize.height || !videoSize.width || !videoSize.height) {
+    return { x: 0.5, y: 0.5 };
+  }
+  const scale = Math.max(canvasSize.width / videoSize.width, canvasSize.height / videoSize.height);
+  const renderedWidth = videoSize.width * scale;
+  const renderedHeight = videoSize.height * scale;
+  const offsetX = (canvasSize.width - renderedWidth) / 2;
+  const offsetY = (canvasSize.height - renderedHeight) / 2;
+  return {
+    x: Math.max(0, Math.min(1, (point.x - offsetX) / renderedWidth)),
+    y: Math.max(0, Math.min(1, (point.y - offsetY) / renderedHeight)),
+  };
+}
+
 function otsuThreshold(values) {
   const histogram = new Uint32Array(256);
   for (const value of values) histogram[value] += 1;

@@ -3,7 +3,9 @@ import {
   OrderedPhasePairer,
   OpticalTracker,
   detectOpticalQuad,
+  previewPointToVideoPoint,
   projectPoint,
+  quadCellSize,
   quadMotion,
   samplePerspectiveGrid,
   squareToQuad,
@@ -15,6 +17,20 @@ import {
   decodeOpticalPair,
   encodeOpticalPhase,
 } from "./qrs-core.js";
+
+assert.equal(quadCellSize([
+  { x: 0, y: 0 }, { x: 700, y: 0 }, { x: 700, y: 700 }, { x: 0, y: 700 },
+], 70), 10);
+assert.deepEqual(previewPointToVideoPoint(
+  { x: 320, y: 240 },
+  { width: 640, height: 480 },
+  { width: 720, height: 1280 },
+), { x: 0.5, y: 0.5 });
+assert.deepEqual(previewPointToVideoPoint(
+  { x: 0, y: 240 },
+  { width: 640, height: 480 },
+  { width: 720, height: 1280 },
+), { x: 0, y: 0.5 });
 
 function image(width, height, value = 18) {
   const data = new Uint8ClampedArray(width * height * 4);

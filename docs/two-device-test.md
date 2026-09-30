@@ -1,6 +1,6 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.1.4 automatic optical acquisition, recovery-tail scheduling, and motion feedback. It does not validate encryption,
+This procedure validates v0.1.5 automatic optical acquisition, mobile focus control, recovery-tail scheduling, and motion feedback. It does not validate encryption,
 colour symbols, or hostile lighting performance.
 
 ## Equipment
@@ -20,11 +20,13 @@ starts only after the baseline succeeds.
 3. Set the sender display brightness to approximately 80–100%.
 4. Open **Receive a file** on the camera device and allow camera access.
 5. Select the rear camera.
-6. Leave **Auto-track outer frame** enabled. Minimum contrast remains `24` under **Advanced
+6. After the preview starts, tap the centre of the displayed QRS matrix once and confirm that the
+   focus metric reports either a point acceptance or a centre sweep.
+7. Leave **Auto-track outer frame** enabled. Minimum contrast remains `24` under **Advanced
    acquisition controls**.
-7. Open **Send a file** on the display device and select `payload.txt`.
-8. Select `300 ms` phase duration for the first acquisition, then work down the timing ladder.
-9. Enter fullscreen matrix mode.
+8. Open **Send a file** on the display device and select `payload.txt`.
+9. Select `300 ms` phase duration for the first acquisition, then work down the timing ladder.
+10. Enter fullscreen matrix mode.
 
 ## Acquisition
 
@@ -67,6 +69,7 @@ receiver completes.
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Final 10% resolves slowly | Remaining source symbols were erased and need a repeat or useful repair equation | Continue transmission and record source/repair plus duplicate-symbol diagnostics |
 | Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and try a slower phase duration |
+| Camera pixels/cell stays below 4 | The matrix is too small in the camera image | Move the receiver closer while keeping the black guard visible |
 
 ## Test ladder
 
@@ -98,6 +101,7 @@ camera settings, actual camera rate, processing latency, valid logical-frame rat
 - Resolved symbols and total symbols.
 - Camera frame rate and average/maximum processing time.
 - Hot-path capture, detection, sampling, classification, and pairing time.
+- Camera pixels per cell, focus capabilities/state, and focus request result.
 - Detector runs versus reused tracks, plus the ranked top-error line.
 - Whether the downloaded bytes matched the original.
 
