@@ -38,6 +38,7 @@ The Protocol v0 core provides:
 - A manual alignment fallback and expanded acquisition diagnostics.
 - Tracking-state feedback that does not flicker when a single optical phase is rejected.
 - Capability-aware continuous focus and tap-to-focus with a visible focus reticle.
+- Automatic one-shot focus at the first detected matrix centre and a square high-resolution preview.
 - Camera pixels-per-cell and sender display pixels-per-cell diagnostics for phone-to-phone tests.
 - A screen wake lock request while a phone is transmitting.
 

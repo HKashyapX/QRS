@@ -8,7 +8,7 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=tail-motion-2";
+} from "./qrs-core.js?v=mobile-optics-2";
 import {
   OpticalTracker,
   OrderedPhasePairer,
@@ -16,7 +16,7 @@ import {
   quadCellSize,
   quadMotion,
   samplePerspectiveGrid,
-} from "./acquisition.js?v=mobile-optics-1";
+} from "./acquisition.js?v=mobile-optics-2";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -71,6 +71,7 @@ let pointFocusSupported = false;
 let focusState = "not started";
 let focusIndicator = null;
 let focusIndicatorUntil = -Infinity;
+let automaticFocusRequested = false;
 const tracker = new OpticalTracker();
 const sampledCells = new Uint8Array(GRID_SIZE * GRID_SIZE);
 const counters = {
@@ -218,6 +219,13 @@ function drawGuide(now = performance.now(), quad = null) {
     context.lineTo(focusIndicator.x, focusIndicator.y + 32);
     context.stroke();
   }
+}
+
+function quadCentre(quad) {
+  return quad.reduce((centre, point) => ({
+    x: centre.x + point.x / quad.length,
+    y: centre.y + point.y / quad.length,
+  }), { x: 0, y: 0 });
 }
 
 function focusConstraint(mode, point = null) {
@@ -418,6 +426,7 @@ function updateDiagnostics(force = false) {
   const observedFps = counters.cameraFrames > 1 ? (counters.cameraFrames - 1) / elapsedSeconds : 0;
   const averageProcessing = counters.cameraFrames ? processingTotal / counters.cameraFrames : 0;
   const validRate = validFrames / elapsedSeconds;
+  const markerLockRate = counters.sampled ? counters.markerLocks / counters.sampled : 0;
   const resolvedBytes = decoder && manifest
     ? Math.min(manifest.objectSize, decoder.resolvedCount * manifest.symbolSize)
     : 0;
@@ -441,6 +450,7 @@ function updateDiagnostics(force = false) {
     ].map((value) => value.toFixed(1)).join("/")} ms`,
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
+    `marker lock rate: ${(markerLockRate * 100).toFixed(1)}%`,
     `marker contrast avg/min: ${counters.markerLocks
       ? `${(counters.markerContrastTotal / counters.markerLocks).toFixed(1)}/${counters.markerContrastMinimum}`
       : "0/0"}`,
@@ -467,6 +477,11 @@ function updateDiagnostics(force = false) {
     `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "yes" : "no"}`,
     `focus requests/successes/failures: ${counters.focusRequests}/${counters.focusSuccesses}/${counters.focusFailures}`,
     `focus state: ${focusState}`,
+    `optical bottleneck: ${counters.sampled < 30
+      ? "collecting evidence"
+      : (markerLockRate < 0.2
+        ? "orientation sampling/focus"
+        : (validRate < 0.5 ? "phase pairing/cell contrast" : "transport recovery"))}`,
     `last pair error: ${lastDiagnosticError}`,
     `top errors: ${commonErrors}`,
   ].join("\n");
@@ -505,6 +520,10 @@ function processVideoFrame(now, metadata) {
       const acquisition = acquireGrid(now);
       activeQuad = acquisition.quad;
       lastTrackedAt = now;
+      if (!automaticFocusRequested) {
+        automaticFocusRequested = true;
+        void focusCameraAt(quadCentre(acquisition.quad));
+      }
       processOpticalGrid(acquisition.cells, acquisition);
     } catch (error) {
       counters.markerFailures += 1;
@@ -570,6 +589,7 @@ function resetTransfer() {
   activeQuad = null;
   focusIndicator = null;
   focusIndicatorUntil = -Infinity;
+  automaticFocusRequested = false;
   tracker.reset();
   errorCounts.clear();
   lastPresentedFrame = -1;
@@ -651,6 +671,7 @@ stopButton.addEventListener("click", () => {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   cameraTrack = null;
+  automaticFocusRequested = false;
   video.srcObject = null;
   cameraButton.disabled = false;
   stopButton.disabled = true;
