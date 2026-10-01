@@ -26,7 +26,7 @@ const displayMetric = document.querySelector("#displayMetric");
 const phaseDurationInput = document.querySelector("#phaseDuration");
 const matrixShell = document.querySelector(".matrix-shell");
 
-const MAX_FILE_SIZE = 100 * 1024;
+const MAX_FILE_SIZE = 1024 * 1024;
 const SYMBOL_SIZE = 256;
 
 let selectedFile = null;
@@ -69,7 +69,7 @@ fileInput.addEventListener("change", () => {
   }
   if (!file.size || file.size > MAX_FILE_SIZE) {
     startButton.disabled = true;
-    status.textContent = file.size ? "File exceeds the 100 KB controlled-demo limit." : "Empty files are not supported yet.";
+    status.textContent = file.size ? "File exceeds the 1 MiB demo limit." : "Empty files are not supported yet.";
     return;
   }
   startButton.disabled = false;
