@@ -4,10 +4,7 @@ QRS is an experimental simplex optical file-transfer protocol. A sender displays
 binary matrices and a receiver reconstructs the transmitted object from camera frames without
 network acknowledgements.
 
-The repository currently contains two generations of code:
-
-- `phase1.cpp` and `phase2.cpp`: original optical and fountain-code experiments.
-- `qrs_core`: the versioned Protocol v0 transport foundation under active development.
+The repository contains the versioned Protocol v0 transport foundation under active development.
 
 ## Current milestone: v0.1.5 Mobile Optics
 
@@ -51,7 +48,6 @@ Requirements:
 
 - CMake 3.20 or newer.
 - A C++20 compiler.
-- OpenCV only when explicitly building the legacy Phase 1 prototype.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -95,12 +91,6 @@ diagnostics from each attempt.
 
 The current field-test rationale and acceptance targets are recorded in
 [`docs/v0.1.5-mobile-optics.md`](docs/v0.1.5-mobile-optics.md).
-
-To build the original OpenCV prototype as `qrs_phase1`:
-
-```bash
-cmake -S . -B build -DQRS_BUILD_LEGACY=ON
-```
 
 ## Protocol
 

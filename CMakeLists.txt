@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.20)
 
 project(qrs VERSION 0.1.5 LANGUAGES CXX)
 
-option(QRS_BUILD_LEGACY "Build the original OpenCV phase 1 prototype" OFF)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -28,9 +26,3 @@ enable_testing()
 add_executable(qrs_tests tests/qrs_tests.cpp)
 target_link_libraries(qrs_tests PRIVATE qrs_core)
 add_test(NAME qrs_tests COMMAND qrs_tests)
-
-if(QRS_BUILD_LEGACY)
-    find_package(OpenCV REQUIRED)
-    add_executable(qrs_phase1 phase1.cpp)
-    target_link_libraries(qrs_phase1 PRIVATE ${OpenCV_LIBS})
-endif()

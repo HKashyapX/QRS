@@ -178,9 +178,9 @@ tracked projective mapping between detector runs, and retains manual alignment a
 
 ## 9. Automatic optical-layer boundary
 
-The original Phase 1 `absdiff(data, inverse)` method cannot recover bit polarity because both bit
-transitions produce the same absolute magnitude. The corrected layer must use signed temporal
-difference plus an unambiguous phase label.
+Absolute difference alone cannot recover bit polarity because both transition directions produce
+the same magnitude. The optical layer therefore uses signed temporal difference plus an
+unambiguous phase label.
 
 Before freezing cell positions, the optical simulator must demonstrate:
 
