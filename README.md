@@ -1,53 +1,125 @@
 # QRS
 
-QRS is an experimental simplex optical file-transfer protocol. A sender displays a stream of
-binary matrices and a receiver reconstructs the transmitted object from camera frames without
-network acknowledgements.
+**QRS is an experimental, one-way optical file-transfer protocol for moving data from a display to
+a camera across an air gap.** During a transfer, the sender and receiver do not need a network
+connection, radio link, acknowledgement channel, or shared filesystem.
 
-The repository contains the versioned Protocol v0 transport foundation under active development.
+The sender renders a continuous stream of custom binary matrices. The receiver tracks the matrix,
+compares alternating optical phases, validates recovered frames, and reconstructs the original file
+from whichever fountain-coded symbols survived the camera channel.
 
-## Current milestone: v0.1.5 Mobile Optics
+> [!WARNING]
+> QRS Protocol v0 is a research prototype. Transfers are currently **not encrypted or
+> authenticated**. Do not use it for sensitive data.
 
-The Protocol v0 core provides:
+## Project status
 
-- Versioned, bounds-checked binary frames.
-- Per-frame CRC-32C validation.
-- Session IDs and frame types.
-- A compact object manifest with reserved encryption identifiers.
-- A deterministic LT-style development codec with systematic symbols.
-- Duplicate-symbol rejection and exact-length recovery.
-- Offline recovery after simulated frame loss.
-- A 64×64 optical matrix with static 9×9 orientation anchors and an explicit phase pilot.
-- Rotation and mirror recovery across all eight grid orientations.
-- A dependency-free static browser transmitter and camera receiver.
-- Automatic outer-frame detection and four-corner tracking.
-- Perspective-corrected cell sampling with temporal corner smoothing.
-- A fullscreen-safe black guard around the detected white symbol boundary.
-- Camera-frame-synchronized processing and tracked-homography reuse.
-- Retryable A/B phase windows that retain clean A candidates until a B observation decodes.
-- Allocation-light perspective sampling with cached coordinate lookup tables and a reusable cell buffer.
-- CRC-guarded tolerance for a bounded number of weak differential cells.
-- A camera-range marker classifier backed by marker errors, phase pilot checks, and frame CRC.
-- Continuous systematic-symbol cycling mixed with fresh fountain repair symbols.
-- Bounded GF(2) elimination that closes final LT stopping sets after fast peeling stalls.
-- Initial manifest bursts so receivers can bind before the systematic stream advances.
-- Geometry-aware rejection when the camera moves between differential phases.
-- A manual alignment fallback and expanded acquisition diagnostics.
-- Tracking-state feedback that does not flicker when a single optical phase is rejected.
-- Capability-aware continuous focus and tap-to-focus with a visible focus reticle.
-- Automatic one-shot focus at the first detected matrix centre and a square high-resolution preview.
-- Camera pixels-per-cell and sender display pixels-per-cell diagnostics for phone-to-phone tests.
-- A screen wake lock request while a phone is transmitting.
+The current release is **v0.1.5 — Mobile Optics**. It supports working browser-to-browser,
+single-lane transfers and has completed real two-device tests. It is not yet a high-speed or
+production-secure protocol.
 
-SHA-256 implementation, encryption, adaptive grid density, and colour symbols are not implemented
-yet. The colour work is deliberately isolated until acquisition is measured across real devices.
+| Capability | Status | Notes |
+|---|---|---|
+| Browser transmitter and camera receiver | Implemented | Dependency-free static web application |
+| Automatic matrix detection and tracking | Implemented | Perspective correction, corner smoothing, and tracked-homography reuse |
+| Differential A/B optical signalling | Implemented | Alternates a matrix with its inverse to suppress static illumination |
+| Loss-tolerant reconstruction | Implemented | Systematic symbols, LT-style repair symbols, peeling, and bounded GF(2) elimination |
+| Integrity checking | Implemented | CRC-32C protects optical frames |
+| Mobile focus support | Implemented where exposed | Continuous focus, first-lock focus, and tap-to-focus depend on browser/camera capabilities |
+| Handheld acquisition | Experimental | Works, but motion, focus, glare, display PWM, and pixels per cell still affect throughput |
+| Encryption and sender authentication | Not implemented | Reserved protocol identifiers exist; captured footage is currently decodable |
+| Adaptive grid density | Planned | Intended to choose a safe matrix size from the measured optical channel |
+| Dual-lane scanning | Planned for v0.2.x | Two matrices in one camera frame, sharing capture and geometry tracking |
+| Colour symbols | Research track | Must be calibrated and measured before carrying file data |
 
-## Build
+The long-term research objective is **150 kbps-class useful throughput** under suitable hardware and
+conditions. This is a target, not the performance of v0.1.5. Reaching it will require several
+multipliers—better temporal signalling, denser adaptive grids, multiple spatial lanes, soft error
+recovery, and potentially calibrated colour modulation—rather than one isolated optimization.
+
+## How the current system works
+
+```mermaid
+flowchart LR
+    F["Input file"] --> S["Chunk and fountain-code"]
+    S --> M["64 x 64 optical matrices"]
+    M --> D["Display phase A / inverse phase B"]
+    D --> C["Camera capture and frame tracking"]
+    C --> P["Perspective sampling and A/B difference"]
+    P --> V["Markers, pilot and CRC validation"]
+    V --> R["Symbol deduplication and recovery"]
+    R --> O["Recovered file"]
+```
+
+1. **Transport framing:** the file is divided into source chunks. A compact manifest describes the
+   object, and each data frame carries either a systematic source symbol or an LT-style repair
+   symbol.
+2. **Optical encoding:** each frame becomes a 64×64 binary matrix with orientation anchors, an
+   optical phase pilot, and a guarded outer boundary.
+3. **Differential signalling:** the transmitter displays the data matrix and then its bitwise
+   inverse. Comparing the two observations suppresses static background illumination and glare.
+4. **Acquisition:** the receiver detects the outer frame, tracks four corners, and samples cell
+   centres through a perspective transform. It can recover rotation and mirroring across all eight
+   grid orientations.
+5. **Validation:** marker consistency, the phase pilot, weak-cell limits, geometry movement, and
+   CRC-32C prevent uncertain observations from entering the decoder.
+6. **Recovery:** valid symbols may arrive late, duplicated, or out of order. Fast fountain peeling
+   handles simple equations; bounded GF(2) elimination resolves remaining stopping sets.
+
+Because QRS is simplex, the transmitter never learns that reception completed. It continues
+transmitting until the receiving user stops it.
+
+## What v0.1.5 improved
+
+The v0.1.x series moved the project from exact manual alignment toward practical mobile acquisition:
+
+- Fullscreen-safe black guarding prevents the white optical boundary from merging into a white page.
+- Camera-frame-synchronized processing avoids duplicate callbacks and unnecessary work.
+- Cached sampling coordinates and reusable buffers reduce allocations in the acquisition hot path.
+- Retryable phase windows retain a clean phase A while waiting for a usable phase B.
+- Tracking can survive individually rejected optical phases without immediately losing the frame.
+- Source-symbol cycling and repair-symbol scheduling reduce the slow completion tail.
+- Continuous and point-focus requests are used when the browser exposes those camera controls.
+- Diagnostics report timing, lock failures, optical contrast, pixels per cell, phase pairing,
+  accepted source/repair frames, duplicates, decoder progress, goodput, and focus results.
+
+Real-device results vary substantially. A successful v0.1.5 field run reported completion at a
+67 ms phase duration, but it also showed that marker acquisition and the display-to-camera optical
+channel—not file reconstruction alone—remain important bottlenecks. Treat a single phone/browser
+result as a diagnostic, not a universal benchmark.
+
+## Run the browser demo
+
+Camera access requires a secure browser context. `localhost` works for development; a second
+physical device normally requires an HTTPS deployment such as GitHub Pages or Cloudflare Pages.
+
+```bash
+python3 -m http.server 8000 --directory web
+```
+
+Open <http://localhost:8000>, then:
+
+1. Open **Send a file** on the display device and choose a small, non-sensitive file.
+2. Open **Receive a file** on the camera device and grant camera permission.
+3. Keep the complete white matrix boundary and some black surround inside the camera view.
+4. Tap the matrix to request focus. Some Android browsers expose no usable point-focus control, so
+   QRS will report the actual result in receiver diagnostics.
+5. Start transmission. Green tracking means the outer geometry is locked; individual optical
+   phases may still be rejected while tracking remains active.
+6. Wait for reconstruction, download the result, and compare it byte-for-byte with the source.
+
+Automatic tracking is the normal mode. The fixed-size alignment box exists only as an advanced
+manual fallback and is not part of automatic acquisition.
+
+For controlled testing, follow [`docs/two-device-test.md`](docs/two-device-test.md) and save the
+diagnostic block from every attempt.
+
+## Build and test the native protocol core
 
 Requirements:
 
-- CMake 3.20 or newer.
-- A C++20 compiler.
+- CMake 3.20 or newer
+- A C++20 compiler
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -55,48 +127,102 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Run the offline transfer demonstration:
+Run an offline transfer with 30% simulated frame loss:
 
 ```bash
-./build/qrs_offline_demo payload.txt recovered_payload.txt 30
-cmp payload.txt recovered_payload.txt
+./build/qrs_offline_demo README.md /tmp/qrs-recovered-readme.md 30
+cmp README.md /tmp/qrs-recovered-readme.md
 ```
 
-The final argument is the simulated percentage of dropped data frames.
+The native offline demo validates transport framing and recovery. It does not exercise a display,
+camera, browser, or the optical acquisition pipeline.
 
-## Browser demo
+## Development roadmap
 
-Serve the static application locally:
+### v0.1.6 — Multi-lane foundations
 
-```bash
-python3 -m http.server 8000 --directory web
+This milestone keeps transmission single-lane while preparing the implementation for spatial
+multiplexing:
+
+- Separate shared camera capture/tracking from per-lane sampling and classification.
+- Introduce reusable per-lane phase-pairing state.
+- Extend development framing with protected lane identity and lane count.
+- Allow one recovery session to accept symbols from multiple lanes.
+- Generalize the acquisition envelope beyond a fixed square.
+- Add per-lane diagnostics, recorded-frame replay, and dual-lane simulation tests.
+
+Compatibility with stable v0.1.5 single-lane behavior is an acceptance requirement.
+
+### v0.2.x — Dual-lane optical acquisition
+
+The proposed dual-lane mode places two independent matrices in one camera image. It should use one
+camera callback, one composite-envelope detection, and one shared homography—not two copied video
+feeds or two complete scanners.
+
+```mermaid
+flowchart TD
+    C["One camera frame"] --> G["Shared envelope and geometry tracking"]
+    G --> L0["Lane 0 sampling and phase pairing"]
+    G --> L1["Lane 1 sampling and phase pairing"]
+    L0 --> F["Shared fountain recovery session"]
+    L1 --> F
 ```
 
-Open `http://localhost:8000`. Localhost is accepted as a secure browser context for camera access.
-For a second physical device, deploy the `web/` directory to an HTTPS static host such as
-Cloudflare Pages or GitHub Pages; camera access normally does not work from a plain HTTP LAN URL.
+Portrait displays can stack two nearly full-width square lanes vertically; landscape displays can
+place them side by side. Each lane carries different symbols from the same session and continues
+contributing even when the other lane temporarily fails. Opposite A/B polarity between lanes is a
+candidate for keeping total display brightness steadier.
 
-1. Open `send.html` on the display device and select a file below 10 KB for the first test.
-2. Open `receive.html` on the camera device and permit camera access.
-3. Tap the matrix once to request focus, then keep the complete white square and some black surround visible. Green means the outer frame is
-   being tracked; individual noisy phases may still be rejected without losing alignment.
-4. Start transmission and hold both devices stable until the receiver exposes the download.
+Two lanes have a raw ceiling of 2× over one otherwise identical lane. The first practical acceptance
+target is at least 1.6× combined goodput without worse completion reliability or excessive frame
+processing time. Gains beyond 2× require additional changes such as denser grids or richer optical
+symbols.
 
-Automatic tracking is the default. The 384 px alignment box is not used in this mode. If a device
-cannot acquire the outer frame, open **Advanced acquisition controls**, disable automatic tracking,
-and use the alignment-box slider as a controlled fallback.
+### Later research
 
-Follow the complete [two-device test procedure](docs/two-device-test.md) and retain the receiver
-diagnostics from each attempt.
+- Adaptive matrix density based on camera pixels per cell, blur, and observed contrast.
+- Soft cell confidence and stronger forward-error correction.
+- Calibrated four- or five-symbol colour alphabets.
+- More efficient temporal signalling and rolling-shutter-aware modulation.
+- Authenticated encryption with keys exchanged outside the optical recording.
 
-The current field-test rationale and acceptance targets are recorded in
-[`docs/v0.1.5-mobile-optics.md`](docs/v0.1.5-mobile-optics.md).
+The colour proposal and references are documented in
+[`docs/v0.1-optical-acquisition.md`](docs/v0.1-optical-acquisition.md). Colour classifiers must use
+captured reference cells and measured confusion matrices; fixed RGB thresholds are not considered a
+reliable protocol design.
 
-## Protocol
+## Security model
 
-The current transport specification is documented in
-[`docs/protocol-v0.md`](docs/protocol-v0.md). Protocol v0 is not yet stable and must not be used
-for sensitive data. Frames are currently unencrypted.
+QRS currently provides corruption detection, **not confidentiality or authenticity**. CRC-32C can
+detect accidental frame corruption but cannot stop an attacker from modifying data or decoding a
+recorded transfer.
 
-The design sources and the separate five-colour research plan are documented in
-[`docs/v0.1-optical-acquisition.md`](docs/v0.1-optical-acquisition.md).
+The planned security layer should use established authenticated-encryption primitives rather than a
+custom cipher. Encryption belongs above chunking and fountain coding so every optical symbol carries
+ciphertext, while session metadata binds the transfer to the intended key and protocol parameters.
+Key provisioning, replay resistance, metadata exposure, and recovery from interrupted sessions must
+be specified before the encrypted mode is called secure.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `include/qrs/`, `src/` | Native Protocol v0 framing, optical mapping, CRC, manifest, and FEC core |
+| `tools/offline_demo.cpp` | Loss-simulated native encode/recover demonstration |
+| `tests/` | Native protocol and recovery tests |
+| `web/` | Static browser sender, receiver, acquisition pipeline, and JavaScript tests |
+| `docs/protocol-v0.md` | Current binary protocol specification |
+| `docs/two-device-test.md` | Reproducible physical-device test procedure |
+| `docs/v0.1.*.md` | Milestone decisions, field evidence, and acceptance criteria |
+
+## Design boundaries
+
+- QRS is intentionally simplex; no acknowledgement channel is assumed.
+- Protocol v0 is unstable and may change incompatibly between experimental releases.
+- A static web deployment distributes the application, but file data travels through the optical
+  channel during a transfer.
+- Features listed as planned or research work are not present merely because the framing reserves
+  space for them.
+
+See [`docs/protocol-v0.md`](docs/protocol-v0.md) for the wire format and
+[`docs/v0.1.5-mobile-optics.md`](docs/v0.1.5-mobile-optics.md) for the current mobile-optics rationale.
