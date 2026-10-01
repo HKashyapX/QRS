@@ -9,14 +9,15 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=multilane-foundations-2";
+} from "./qrs-core.js?v=dual-lane-acquisition-1";
 import {
   OpticalLane,
   OpticalTracker,
+  layoutLaneQuads,
   previewPointToVideoPoint,
   quadCellSize,
   quadMotion,
-} from "./acquisition.js?v=multilane-foundations-2";
+} from "./acquisition.js?v=dual-lane-acquisition-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -32,6 +33,7 @@ const focusMetric = document.querySelector("#focusMetric");
 const download = document.querySelector("#download");
 const facingModeInput = document.querySelector("#facingMode");
 const cameraFrameRateInput = document.querySelector("#cameraFrameRate");
+const laneCountInput = document.querySelector("#laneCount");
 const roiSizeInput = document.querySelector("#roiSize");
 const roiValue = document.querySelector("#roiValue");
 const autoTrackInput = document.querySelector("#autoTrack");
@@ -66,8 +68,8 @@ let transferStartedAt = 0;
 let transferCompletedAt = 0;
 let consecutiveMarkerFailures = 0;
 const frameRouter = new LaneFrameRouter();
-const opticalLanes = [new OpticalLane({ laneId: 0 })];
-const singleLane = opticalLanes[0];
+let opticalLanes = [];
+let laneStats = [];
 let activeSession = null;
 let manifest = null;
 let decoder = null;
@@ -76,6 +78,7 @@ let downloadUrl = null;
 let lastTrackedAt = -Infinity;
 let lastMarkerLockAt = -Infinity;
 let activeQuad = null;
+let activeLaneQuads = [];
 let focusModes = [];
 let pointFocusSupported = false;
 let pointConstraintUnderstood = false;
@@ -83,7 +86,7 @@ let focusState = "not started";
 let focusIndicator = null;
 let focusIndicatorUntil = -Infinity;
 let automaticFocusRequested = false;
-const tracker = new OpticalTracker();
+const tracker = new OpticalTracker({ smoothing: 0.46, maxMisses: 1 });
 const counters = {
   sampled: 0,
   markerLocks: 0,
@@ -127,25 +130,64 @@ const counters = {
 };
 const errorCounts = new Map();
 let lastDiagnosticError = "none";
-const DETECTION_INTERVAL_MS = 200;
-const MARKER_FAILURES_BEFORE_REACQUIRE = 3;
+const DETECTION_INTERVAL_MS = 133;
+const MARKER_FAILURES_BEFORE_REACQUIRE = 2;
 const DIAGNOSTICS_INTERVAL_MS = 250;
 const TRACK_LOCK_HOLD_MS = 500;
 const MARKER_LOCK_HOLD_MS = 600;
 const FOCUS_INDICATOR_MS = 900;
 
+function configuredLaneCount() {
+  return Number(laneCountInput.value);
+}
+
+function configureOpticalLanes() {
+  const laneCount = configuredLaneCount();
+  opticalLanes = Array.from({ length: laneCount }, (_, laneId) => new OpticalLane({
+    laneId,
+    firstPhaseInverted: laneId % 2 === 1,
+  }));
+  laneStats = Array.from({ length: laneCount }, (_, laneId) => ({
+    laneId,
+    sampled: 0,
+    locks: 0,
+    failures: 0,
+    valid: 0,
+    rejects: 0,
+    lastLockAt: -Infinity,
+    lastError: "none",
+  }));
+  roiSizeInput.min = laneCount > 1 ? "192" : "256";
+  roiSizeInput.max = laneCount > 1 ? "304" : "448";
+  roiSizeInput.value = laneCount > 1 ? "288" : "384";
+  updateRoiLabel();
+}
+
+function updateRoiLabel() {
+  const width = Number(roiSizeInput.value);
+  roiValue.textContent = configuredLaneCount() > 1
+    ? `${width} × ${width * configuredLaneCount()} px`
+    : `${width} px`;
+}
+
 function currentRoi() {
-  const size = Number(roiSizeInput.value);
-  return { size, x: (canvas.width - size) / 2, y: (canvas.height - size) / 2 };
+  const width = Number(roiSizeInput.value);
+  const height = width * configuredLaneCount();
+  return {
+    width,
+    height,
+    x: (canvas.width - width) / 2,
+    y: (canvas.height - height) / 2,
+  };
 }
 
 function manualQuad() {
   const roi = currentRoi();
   return [
     { x: roi.x, y: roi.y },
-    { x: roi.x + roi.size, y: roi.y },
-    { x: roi.x + roi.size, y: roi.y + roi.size },
-    { x: roi.x, y: roi.y + roi.size },
+    { x: roi.x + roi.width, y: roi.y },
+    { x: roi.x + roi.width, y: roi.y + roi.height },
+    { x: roi.x, y: roi.y + roi.height },
   ];
 }
 
@@ -192,13 +234,16 @@ function sampleLane(image, acquisition, lane) {
   return cells;
 }
 
-function acquireGrid(now, lane = singleLane) {
+function acquireFrame(now) {
   const image = captureCameraImage();
-  const acquisition = acquireEnvelope(image, now);
-  return { ...acquisition, cells: sampleLane(image, acquisition, lane), lane };
+  const envelope = acquireEnvelope(image, now);
+  const layouts = configuredLaneCount() === 1
+    ? [{ laneId: 0, quad: envelope.quad }]
+    : layoutLaneQuads(envelope.quad, { rows: configuredLaneCount(), columns: 1 });
+  return { image, envelope, layouts };
 }
 
-function drawGuide(now = performance.now(), quad = null) {
+function drawGuide(now = performance.now(), quad = null, laneQuads = []) {
   const guide = quad ?? manualQuad();
   const trackedRecently = autoTrackInput.checked && now - lastTrackedAt <= TRACK_LOCK_HOLD_MS;
   const decodedRecently = now - lastMarkerLockAt <= MARKER_LOCK_HOLD_MS;
@@ -209,17 +254,44 @@ function drawGuide(now = performance.now(), quad = null) {
   for (let index = 1; index < guide.length; index += 1) context.lineTo(guide[index].x, guide[index].y);
   context.closePath();
   context.stroke();
+  const displayedLanes = laneQuads.length
+    ? laneQuads
+    : layoutLaneQuads(guide, { rows: configuredLaneCount(), columns: 1 });
+  if (displayedLanes.length > 1) {
+    displayedLanes.forEach((layout, laneId) => {
+      const laneRecentlyLocked = now - (laneStats[laneId]?.lastLockAt ?? -Infinity) <= MARKER_LOCK_HOLD_MS;
+      context.strokeStyle = laneRecentlyLocked ? "#60a5fa" : "rgba(251,191,36,.72)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(layout.quad[0].x, layout.quad[0].y);
+      for (let index = 1; index < layout.quad.length; index += 1) {
+        context.lineTo(layout.quad[index].x, layout.quad[index].y);
+      }
+      context.closePath();
+      context.stroke();
+      const centre = quadCentre(layout.quad);
+      context.fillStyle = "rgba(0,0,0,.68)";
+      context.fillRect(centre.x - 25, centre.y - 13, 50, 26);
+      context.fillStyle = laneRecentlyLocked ? "#bfdbfe" : "#fde68a";
+      context.font = "700 13px system-ui";
+      context.textAlign = "center";
+      context.fillText(`Lane ${laneId + 1}`, centre.x, centre.y + 5);
+    });
+  }
   const top = Math.max(32, Math.min(...guide.map((point) => point.y)));
   context.fillStyle = "rgba(0,0,0,.62)";
   context.fillRect(0, top - 30, canvas.width, 26);
   context.fillStyle = "#ffffff";
   context.font = "600 15px system-ui";
   context.textAlign = "center";
+  const lockedLaneCount = laneStats.filter((lane) => now - lane.lastLockAt <= MARKER_LOCK_HOLD_MS).length;
   const message = autoTrackInput.checked
     ? (trackedRecently
-      ? (decodedRecently ? "Frame tracked — decoding clean phases" : "Frame tracked — waiting for a clean phase")
-      : "Show the complete white square and black surround")
-    : "Manual fallback: align the outer white square inside this guide";
+      ? (decodedRecently
+        ? `Envelope tracked — ${lockedLaneCount}/${configuredLaneCount()} lanes decoding`
+        : "Envelope tracked — waiting for clean lane phases")
+      : "Show the complete white envelope and black surround")
+    : "Manual fallback: align the complete optical envelope inside this guide";
   context.fillText(message, canvas.width / 2, top - 11);
   if (focusIndicator && now <= focusIndicatorUntil) {
     context.strokeStyle = "#60a5fa";
@@ -387,6 +459,8 @@ function acceptFrame(frame) {
 }
 
 function processOpticalGrid(lane, cells, acquisition) {
+  const stats = laneStats[lane.laneId];
+  stats.sampled += 1;
   counters.sampled += 1;
   const modulePixels = quadCellSize(acquisition.quad, DISPLAY_GRID_SIZE);
   counters.modulePixelsTotal += modulePixels;
@@ -399,8 +473,10 @@ function processOpticalGrid(lane, cells, acquisition) {
   } finally {
     counters.classificationTime += performance.now() - classificationStarted;
   }
-  consecutiveMarkerFailures = 0;
   lastMarkerLockAt = performance.now();
+  stats.lastLockAt = lastMarkerLockAt;
+  stats.locks += 1;
+  stats.lastError = "none";
   counters.markerLocks += 1;
   counters.markerContrastTotal += classification.contrast;
   counters.markerContrastMinimum = Math.min(counters.markerContrastMinimum, classification.contrast);
@@ -436,6 +512,7 @@ function processOpticalGrid(lane, cells, acquisition) {
       acceptFrame(frame);
       lane.pairer.complete();
       validFrames += 1;
+      stats.valid += 1;
       if (pairing.attempt > 1) counters.recoveredAfterRetry += 1;
       frameMetric.textContent = `${validFrames} valid frames`;
       lastDiagnosticError = "none";
@@ -448,12 +525,15 @@ function processOpticalGrid(lane, cells, acquisition) {
   if (!geometryCandidates) {
     counters.pairTime += performance.now() - pairStarted;
     counters.geometryRejects += 1;
+    stats.rejects += 1;
+    stats.lastError = "Camera moved between differential phases";
     lastDiagnosticError = "Camera moved between differential phases";
     return false;
   }
   counters.pairRejects += 1;
+  stats.rejects += 1;
   counters.pairTime += performance.now() - pairStarted;
-  recordError(lastError ?? new Error("Optical pair could not be decoded"));
+  recordError(lastError ?? new Error("Optical pair could not be decoded"), lane.laneId);
   return false;
 }
 
@@ -539,13 +619,16 @@ function updateDiagnostics(force = false) {
     `accepted weak cells avg/max: ${validFrames
       ? `${(counters.acceptedWeakCells / validFrames).toFixed(1)}/${counters.acceptedWeakCellsMaximum}`
       : "0/0"}`,
-    `optical lanes configured/active: ${opticalLanes.length}/${laneSnapshot.laneCount || 1}`,
-    `routed frames by lane: ${laneSnapshot.framesByLane.join("/") || "0"}`,
-    `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
+    `optical lanes configured/active: ${opticalLanes.length}/${laneSnapshot.laneCount || opticalLanes.length}`,
+    `lane sampled/locks/failures: ${laneStats.map((lane) => `${lane.sampled}/${lane.locks}/${lane.failures}`).join(" | ")}`,
+    `lane valid/rejected pairs: ${laneStats.map((lane) => `${lane.valid}/${lane.rejects}`).join(" | ")}`,
+    `routed frames by lane: ${laneSnapshot.framesByLane.join("/") || opticalLanes.map(() => 0).join("/")}`,
+    `lane last errors: ${laneStats.map((lane) => lane.lastError).join(" | ")}`,
+    `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}x${Number(roiSizeInput.value) * configuredLaneCount()}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
     `detections/reused tracks: ${counters.detectionRuns}/${counters.reusedTracks}`,
     `geometry pair rejects: ${counters.geometryRejects}`,
-    `orphan/duplicate phase B: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
+    `orphan/duplicate second phase: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
     `optical bottleneck: ${opticalBottleneck}`,
     `last pair error: ${lastDiagnosticError}`,
@@ -568,9 +651,10 @@ function formatDuration(seconds) {
   return minutes ? `${minutes}m ${remainder.toString().padStart(2, "0")}s` : `${remainder}s`;
 }
 
-function recordError(error) {
+function recordError(error, laneId = null) {
   const message = error instanceof Error ? error.message : String(error);
-  lastDiagnosticError = message;
+  lastDiagnosticError = laneId === null ? message : `Lane ${laneId + 1}: ${message}`;
+  if (laneId !== null && laneStats[laneId]) laneStats[laneId].lastError = message;
   errorCounts.set(message, (errorCounts.get(message) ?? 0) + 1);
 }
 
@@ -598,16 +682,40 @@ function processVideoFrame(now, metadata) {
     lastCameraFrameAt = now;
     drawVideoCover();
     try {
-      const acquisition = acquireGrid(now);
-      activeQuad = acquisition.quad;
+      const acquisition = acquireFrame(now);
+      activeQuad = acquisition.envelope.quad;
+      activeLaneQuads = acquisition.layouts;
       lastTrackedAt = now;
       if (!automaticFocusRequested) {
         automaticFocusRequested = true;
-        void focusCameraAt(quadCentre(acquisition.quad));
+        void focusCameraAt(quadCentre(acquisition.envelope.quad));
       }
-      processOpticalGrid(acquisition.lane, acquisition.cells, acquisition);
+      let recognizedLanes = 0;
+      acquisition.layouts.forEach((layout) => {
+        const lane = opticalLanes[layout.laneId];
+        try {
+          const laneAcquisition = { ...acquisition.envelope, quad: layout.quad };
+          const cells = sampleLane(acquisition.image, laneAcquisition, lane);
+          processOpticalGrid(lane, cells, laneAcquisition);
+          recognizedLanes += 1;
+        } catch (error) {
+          counters.markerFailures += 1;
+          laneStats[lane.laneId].failures += 1;
+          recordError(error, lane.laneId);
+        }
+      });
+      if (recognizedLanes) {
+        consecutiveMarkerFailures = 0;
+        confidenceMetric.textContent = `${recognizedLanes}/${configuredLaneCount()} lanes recognized`;
+      } else {
+        consecutiveMarkerFailures += 1;
+        confidenceMetric.textContent = `Envelope tracked · 0/${configuredLaneCount()} lanes recognized`;
+        if (consecutiveMarkerFailures >= MARKER_FAILURES_BEFORE_REACQUIRE) {
+          lastDetectionAt = -Infinity;
+          consecutiveMarkerFailures = 0;
+        }
+      }
     } catch (error) {
-      counters.markerFailures += 1;
       consecutiveMarkerFailures += 1;
       recordError(error);
       confidenceMetric.textContent = now - lastTrackedAt <= TRACK_LOCK_HOLD_MS
@@ -619,7 +727,7 @@ function processVideoFrame(now, metadata) {
         consecutiveMarkerFailures = 0;
       }
     }
-    drawGuide(now, activeQuad);
+    drawGuide(now, activeQuad, activeLaneQuads);
     const processingTime = performance.now() - processingStart;
     processingTotal += processingTime;
     processingMaximum = Math.max(processingMaximum, processingTime);
@@ -658,8 +766,9 @@ cameraButton.addEventListener("click", async () => {
     cameraButton.disabled = true;
     facingModeInput.disabled = true;
     cameraFrameRateInput.disabled = true;
+    laneCountInput.disabled = true;
     stopButton.disabled = false;
-    status.textContent = `Camera active at ${settings.frameRate ?? "unknown"} FPS (${requestedCameraFrameRate} requested). Keep the complete white square and some black surround visible.`;
+    status.textContent = `Camera active at ${settings.frameRate ?? "unknown"} FPS (${requestedCameraFrameRate} requested). Track the complete ${configuredLaneCount()}-lane white envelope and black surround.`;
     scheduleVideoFrame();
   } catch (error) {
     status.textContent = `Camera could not start: ${error.message}`;
@@ -676,6 +785,7 @@ function resetTransfer() {
   lastTrackedAt = -Infinity;
   lastMarkerLockAt = -Infinity;
   activeQuad = null;
+  activeLaneQuads = [];
   focusIndicator = null;
   focusIndicatorUntil = -Infinity;
   automaticFocusRequested = false;
@@ -692,6 +802,15 @@ function resetTransfer() {
   lastDiagnosticsAt = -Infinity;
   consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
+  laneStats.forEach((lane) => Object.assign(lane, {
+    sampled: 0,
+    locks: 0,
+    failures: 0,
+    valid: 0,
+    rejects: 0,
+    lastLockAt: -Infinity,
+    lastError: "none",
+  }));
   counters.markerContrastMinimum = 255;
   counters.modulePixelsMinimum = Infinity;
   lastDiagnosticError = "none";
@@ -713,7 +832,7 @@ resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
   updateDiagnostics(true);
   const report = [
-    "QRS v0.1.6 multi-lane-foundations diagnostics",
+    "QRS v0.2.0 dual-lane-acquisition diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,
@@ -727,8 +846,18 @@ copyDiagnosticsButton.addEventListener("click", async () => {
   }
 });
 roiSizeInput.addEventListener("input", () => {
-  roiValue.textContent = `${roiSizeInput.value} px`;
+  updateRoiLabel();
   opticalLanes.forEach((lane) => lane.reset());
+});
+laneCountInput.addEventListener("change", () => {
+  configureOpticalLanes();
+  resetTransfer();
+  tracker.reset();
+  activeQuad = null;
+  activeLaneQuads = [];
+  status.textContent = configuredLaneCount() > 1
+    ? "Dual-lane mode selected. Keep the full portrait envelope visible."
+    : "Single-lane compatibility mode selected.";
 });
 autoTrackInput.addEventListener("change", () => {
   roiSizeInput.disabled = autoTrackInput.checked;
@@ -736,8 +865,8 @@ autoTrackInput.addEventListener("change", () => {
   activeQuad = null;
   opticalLanes.forEach((lane) => lane.reset());
   status.textContent = autoTrackInput.checked
-    ? "Automatic tracking enabled. Keep the complete white square and black surround in view."
-    : "Manual fallback enabled. Align the outer white square inside the guide.";
+    ? "Automatic tracking enabled. Keep the complete white envelope and black surround in view."
+    : "Manual fallback enabled. Align the full optical envelope inside the guide.";
 });
 minimumContrastInput.addEventListener("input", () => {
   contrastValue.textContent = minimumContrastInput.value;
@@ -767,6 +896,7 @@ stopButton.addEventListener("click", () => {
   cameraButton.disabled = false;
   facingModeInput.disabled = false;
   cameraFrameRateInput.disabled = false;
+  laneCountInput.disabled = false;
   stopButton.disabled = true;
   focusMetric.textContent = "Focus: stopped";
   status.textContent = "Camera stopped.";
@@ -774,5 +904,6 @@ stopButton.addEventListener("click", () => {
 
 context.fillStyle = "#020807";
 context.fillRect(0, 0, canvas.width, canvas.height);
+configureOpticalLanes();
 drawGuide();
 updateDiagnostics(true);

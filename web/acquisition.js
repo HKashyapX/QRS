@@ -327,8 +327,9 @@ function observationQuality(observation) {
 // can retry later B camera frames after a rolling-shutter/transition capture
 // fails instead of discarding the only usable A immediately.
 export class OrderedPhasePairer {
-  constructor({ maximumACandidates = 3 } = {}) {
+  constructor({ maximumACandidates = 3, firstPhaseInverted = false } = {}) {
     this.maximumACandidates = maximumACandidates;
+    this.firstPhaseInverted = firstPhaseInverted;
     this.pendingA = [];
     this.sawB = false;
     this.completed = false;
@@ -348,7 +349,8 @@ export class OrderedPhasePairer {
 
   push(classification, metadata = {}) {
     const observation = { classification, ...metadata };
-    if (!classification.inverted) {
+    const isFirstPhase = classification.inverted === this.firstPhaseInverted;
+    if (isFirstPhase) {
       const advanced = this.sawB;
       if (advanced) this.reset();
       this.pendingA.push(observation);
@@ -369,12 +371,12 @@ export class OrderedPhasePairer {
 }
 
 export class OpticalLane {
-  constructor({ laneId = 0, maximumACandidates = 3 } = {}) {
+  constructor({ laneId = 0, maximumACandidates = 3, firstPhaseInverted = false } = {}) {
     if (!Number.isInteger(laneId) || laneId < 0 || laneId >= 16) {
       throw new Error("Optical lane ID must be between 0 and 15");
     }
     this.laneId = laneId;
-    this.pairer = new OrderedPhasePairer({ maximumACandidates });
+    this.pairer = new OrderedPhasePairer({ maximumACandidates, firstPhaseInverted });
     this.sampleBuffer = null;
   }
 

@@ -17,6 +17,7 @@ import {
   GRID_SIZE,
   classifyOptical,
   decodeOpticalPair,
+  encodeLaneFlags,
   encodeOpticalPhase,
 } from "./qrs-core.js";
 
@@ -138,6 +139,14 @@ assert.equal(pairer.push(phaseB0).status, "duplicate", "cleanly decoded B repeat
 assert.equal(pairer.push(phaseA1).status, "advanced", "a new A starts the next logical window");
 assert.deepEqual(pairer.push(phaseB1).pairs[0].map((item) => item.classification.id), ["A1", "B1"]);
 
+const reversePairer = new OrderedPhasePairer({ firstPhaseInverted: true });
+assert.equal(reversePairer.push(phaseA0).status, "orphan");
+assert.equal(reversePairer.push(phaseB0).status, "armed");
+const reverseCandidate = reversePairer.push(phaseA0);
+assert.equal(reverseCandidate.status, "candidate");
+assert.deepEqual(reverseCandidate.pairs[0].map((item) => item.classification.id), ["B0", "A0"],
+  "opposite-polarity lanes should pair B then A without cross-frame mixing");
+
 function renderGuardedSymbol(cells) {
   const target = image(640, 520, 24);
   const cellSize = 6;
@@ -156,6 +165,29 @@ function renderGuardedSymbol(cells) {
         cellSize, cellSize, cells[y * GRID_SIZE + x]);
     }
   }
+  return target;
+}
+
+function renderGuardedLanes(lanes) {
+  const target = image(600, 1000, 24);
+  const cellSize = 6;
+  const symbolX = 72;
+  const symbolY = 62;
+  const guard = 3;
+  const quiet = 3;
+  fillRect(target, symbolX, symbolY, 76 * cellSize, (70 * lanes.length + 6) * cellSize, 0);
+  fillRect(target, symbolX + guard * cellSize, symbolY + guard * cellSize,
+    70 * cellSize, 70 * lanes.length * cellSize, 240);
+  lanes.forEach((cells, laneId) => {
+    const matrixX = symbolX + (guard + quiet) * cellSize;
+    const matrixY = symbolY + (guard + laneId * 70 + quiet) * cellSize;
+    for (let y = 0; y < GRID_SIZE; y += 1) {
+      for (let x = 0; x < GRID_SIZE; x += 1) {
+        fillRect(target, matrixX + x * cellSize, matrixY + y * cellSize,
+          cellSize, cellSize, cells[y * GRID_SIZE + x]);
+      }
+    }
+  });
   return target;
 }
 
@@ -213,6 +245,36 @@ const recoveredFrame = decodeOpticalPair(classifiedA, classifiedB, 24);
 assert.equal(recoveredFrame.sessionId, opticalFrame.sessionId);
 assert.equal(recoveredFrame.symbolId, opticalFrame.symbolId);
 assert.deepEqual(recoveredFrame.payload, opticalFrame.payload);
+
+const dualFrames = [0, 1].map((laneId) => ({
+  ...opticalFrame,
+  flags: encodeLaneFlags({ laneId, laneCount: 2 }),
+  symbolId: opticalFrame.symbolId + laneId,
+}));
+const dualFirst = renderGuardedLanes([
+  encodeOpticalPhase(dualFrames[0], false),
+  encodeOpticalPhase(dualFrames[1], true),
+]);
+const dualSecond = renderGuardedLanes([
+  encodeOpticalPhase(dualFrames[0], true),
+  encodeOpticalPhase(dualFrames[1], false),
+]);
+const dualDetectionFirst = detectOpticalQuad(dualFirst);
+const dualDetectionSecond = detectOpticalQuad(dualSecond);
+assert.ok(dualDetectionFirst && dualDetectionSecond, "one composite portrait envelope should be detected");
+const dualLayoutsFirst = layoutLaneQuads(dualDetectionFirst.quad, { rows: 2, columns: 1 });
+const dualLayoutsSecond = layoutLaneQuads(dualDetectionSecond.quad, { rows: 2, columns: 1 });
+for (let laneId = 0; laneId < 2; laneId += 1) {
+  const first = classifyOptical(samplePerspectiveGrid(
+    dualFirst, dualLayoutsFirst[laneId].quad, GRID_SIZE, 3,
+  ));
+  const second = classifyOptical(samplePerspectiveGrid(
+    dualSecond, dualLayoutsSecond[laneId].quad, GRID_SIZE, 3,
+  ));
+  const recovered = decodeOpticalPair(first, second, 24);
+  assert.equal(recovered.symbolId, dualFrames[laneId].symbolId);
+  assert.equal(recovered.flags, dualFrames[laneId].flags);
+}
 
 const transitionBCells = encodeOpticalPhase(opticalFrame, true);
 const cleanACells = encodeOpticalPhase(opticalFrame, false);

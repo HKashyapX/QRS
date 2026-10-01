@@ -21,9 +21,9 @@ from whichever fountain-coded symbols survived the camera channel.
 
 ## Project status
 
-The current release is **v0.1.6 — Multi-lane Foundations**. It preserves the working
-browser-to-browser single-lane transfer while making capture, optical-lane state, frame routing,
-and recovery ready for dual-lane experiments. It is not yet a high-speed or production-secure
+The current release is **v0.2.0 — Dual-Lane Acquisition**. One camera frame and one tracked
+portrait envelope now feed two independent optical samplers and one shared recovery session.
+Single-lane compatibility remains available. It is not yet a high-speed or production-secure
 protocol.
 
 | Capability | Status | Notes |
@@ -39,11 +39,11 @@ protocol.
 | Encryption and sender authentication | Not implemented | Reserved protocol identifiers exist; captured footage is currently decodable |
 | Adaptive grid density | Planned | Intended to choose a safe matrix size from the measured optical channel |
 | Lane-aware framing and recovery | Implemented | CRC-protected lane identity; one decoder accepts symbols from every lane |
-| Dual-lane display and scanning | Planned for v0.2.x | Two visible matrices sharing capture and geometry tracking |
+| Dual-lane display and scanning | Experimental in v0.2.0 | Two visible matrices share capture, envelope tracking, and recovery |
 | Colour symbols | Research track | Must be calibrated and measured before carrying file data |
 
 The long-term research objective is **150 kbps-class useful throughput** under suitable hardware and
-conditions. This is a target, not the performance of v0.1.6. Reaching it will require several
+conditions. This is a target, not the performance of v0.2.0. Reaching it will require several
 multipliers—better temporal signalling, denser adaptive grids, multiple spatial lanes, soft error
 recovery, and potentially calibrated colour modulation—rather than one isolated optimization.
 
@@ -52,10 +52,10 @@ recovery, and potentially calibrated colour modulation—rather than one isolate
 ```mermaid
 flowchart LR
     F["Input file"] --> S["Chunk and fountain-code"]
-    S --> M["64 x 64 optical matrices"]
-    M --> D["Display phase A / inverse phase B"]
-    D --> C["Camera capture and frame tracking"]
-    C --> P["Perspective sampling and A/B difference"]
+    S --> M["Two 64 x 64 optical lanes"]
+    M --> D["Opposite-polarity A/B display"]
+    D --> C["One camera capture and envelope track"]
+    C --> P["Two samplers and phase pairers"]
     P --> V["Markers, pilot and CRC validation"]
     V --> R["Symbol deduplication and recovery"]
     R --> O["Recovered file"]
@@ -64,13 +64,13 @@ flowchart LR
 1. **Transport framing:** the file is divided into source chunks. A compact manifest describes the
    object, and each data frame carries either a systematic source symbol or an LT-style repair
    symbol.
-2. **Optical encoding:** each frame becomes a 64×64 binary matrix with orientation anchors, an
-   optical phase pilot, and a guarded outer boundary.
+2. **Optical encoding:** each frame becomes a 64×64 binary matrix with orientation anchors and an
+   optical phase pilot. v0.2 places two matrices inside one guarded portrait envelope.
 3. **Differential signalling:** the transmitter displays the data matrix and then its bitwise
    inverse. Comparing the two observations suppresses static background illumination and glare.
-4. **Acquisition:** the receiver detects the outer frame, tracks four corners, and samples cell
-   centres through a perspective transform. It can recover rotation and mirroring across all eight
-   grid orientations.
+4. **Acquisition:** the receiver detects one outer envelope, tracks four corners, subdivides that
+   projective region into lane quadrilaterals, and samples both lanes independently. It can recover
+   rotation and mirroring across all eight grid orientations.
 5. **Validation:** marker consistency, the phase pilot, weak-cell limits, geometry movement, and
    CRC-32C prevent uncertain observations from entering the decoder.
 6. **Recovery:** valid symbols may arrive late, duplicated, or out of order. Fast fountain peeling
@@ -79,7 +79,7 @@ flowchart LR
 Because QRS is simplex, the transmitter never learns that reception completed. It continues
 transmitting until the receiving user stops it.
 
-## What v0.1.5 and v0.1.6 improved
+## How v0.1 led to v0.2
 
 The v0.1.x series moved the project from exact manual alignment toward practical mobile acquisition:
 
@@ -111,6 +111,20 @@ second visible matrix yet:
 - One projective envelope can be divided into row/column lane quadrilaterals for v0.2 experiments.
 - Diagnostics expose configured lanes, active session lanes, and routed frames per lane.
 
+v0.2.0 activates those foundations:
+
+- Two vertically stacked matrices share one connected white envelope.
+- Both lanes carry different symbols from one global schedule and recovery session.
+- Lane 1 uses A→B while lane 2 uses B→A, reducing whole-display brightness pumping.
+- The receiver captures and detects once, then derives and samples both lane quadrilaterals.
+- A bad observation in one lane no longer prevents the other lane from contributing a frame.
+- Tracking refreshes more frequently, uses less smoothing lag, and reacquires early when every lane
+  loses its orientation markers.
+- The preview exposes lane boundaries, recent per-lane locks, and per-lane diagnostic errors.
+
+Opposite lane polarity reduces global brightness swings but does **not** make the carrier
+photosensitivity-safe; individual cells still change rapidly.
+
 ## Run the browser demo
 
 Camera access requires a secure browser context. `localhost` works for development; a second
@@ -124,12 +138,13 @@ Open <http://localhost:8000>, then:
 
 1. Open **Send a file** on the display device and choose a small, non-sensitive file.
 2. Open **Receive a file** on the camera device and grant camera permission.
-3. Keep the complete white matrix boundary and some black surround inside the camera view.
-4. Tap the matrix to request focus. Some Android browsers expose no usable point-focus control, so
+3. Select the same optical layout on both devices. Dual lane is the v0.2 default.
+4. Keep the complete white portrait envelope and some black surround inside the camera view.
+5. Tap the matrix to request focus. Some Android browsers expose no usable point-focus control, so
    QRS will report the actual result in receiver diagnostics.
-5. Start transmission. Green tracking means the outer geometry is locked; individual optical
+6. Start transmission. Green tracking means the outer geometry is locked; individual optical
    phases may still be rejected while tracking remains active.
-6. Wait for reconstruction, download the result, and compare it byte-for-byte with the source.
+7. Wait for reconstruction, download the result, and compare it byte-for-byte with the source.
 
 Automatic tracking is the normal mode. The fixed-size alignment box exists only as an advanced
 manual fallback and is not part of automatic acquisition.
@@ -162,7 +177,7 @@ camera, browser, or the optical acquisition pipeline.
 
 ## Development roadmap
 
-### v0.1.6 — Multi-lane foundations (current)
+### v0.1.6 — Multi-lane foundations (complete)
 
 This milestone keeps transmission single-lane while preparing the implementation for spatial
 multiplexing. The following foundations are implemented:
@@ -181,11 +196,11 @@ The validated phone-camera baseline is now **50 ms/phase**. The transmitter expo
 sub-100 ms test ladder (67, 50, 40 and 33 ms/phase); slower compatibility modes are no longer part
 of the active optimization path.
 
-### v0.2.x — Dual-lane optical acquisition
+### v0.2.0 — Dual-lane optical acquisition (current)
 
-The proposed dual-lane mode places two independent matrices in one camera image. It should use one
-camera callback, one composite-envelope detection, and one shared homography—not two copied video
-feeds or two complete scanners.
+The dual-lane mode places two independent matrices in one camera image. It uses one camera callback,
+one composite-envelope detection, and one shared projective subdivision—not two copied video feeds
+or two complete scanners.
 
 ```mermaid
 flowchart TD
@@ -196,15 +211,14 @@ flowchart TD
     L1 --> F
 ```
 
-Portrait displays can stack two nearly full-width square lanes vertically; landscape displays can
-place them side by side. Each lane carries different symbols from the same session and continues
-contributing even when the other lane temporarily fails. Opposite A/B polarity between lanes is a
-candidate for keeping total display brightness steadier.
+v0.2.0 implements the portrait stack. Each lane carries different symbols from the same session and
+continues contributing even when the other lane temporarily fails. A landscape layout remains a
+later v0.2.x experiment.
 
-Two lanes have a raw ceiling of 2× over one otherwise identical lane. The first practical acceptance
-target is at least 1.6× combined goodput without worse completion reliability or excessive frame
-processing time. Gains beyond 2× require additional changes such as denser grids or richer optical
-symbols.
+Two lanes have a raw ceiling of 2× over one otherwise identical lane. The practical acceptance
+target remains at least 1.6× combined goodput without worse completion reliability or excessive
+frame processing time. This is now a field-test gate, not a claimed result. Gains beyond 2× require
+additional changes such as denser grids or richer optical symbols.
 
 ### Later research
 
@@ -241,7 +255,7 @@ be specified before the encrypted mode is called secure.
 | `web/` | Static browser sender, receiver, acquisition pipeline, and JavaScript tests |
 | `docs/protocol-v0.md` | Current binary protocol specification |
 | `docs/two-device-test.md` | Reproducible physical-device test procedure |
-| `docs/v0.1.*.md` | Milestone decisions, field evidence, and acceptance criteria |
+| `docs/v0.*.md` | Milestone decisions, field evidence, and acceptance criteria |
 
 ## Design boundaries
 
@@ -253,4 +267,4 @@ be specified before the encrypted mode is called secure.
   space for them.
 
 See [`docs/protocol-v0.md`](docs/protocol-v0.md) for the wire format and
-[`docs/v0.1.6-multilane-foundations.md`](docs/v0.1.6-multilane-foundations.md) for the current milestone rationale.
+[`docs/v0.2.0-dual-lane-acquisition.md`](docs/v0.2.0-dual-lane-acquisition.md) for the current milestone rationale.

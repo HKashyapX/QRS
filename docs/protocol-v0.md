@@ -179,6 +179,21 @@ Each corner anchor has a one-cell white separator, black outer ring, white inner
 are `000000000`, `111100000`, `110011000`, and `101010100`. Anchor and timing-border cells remain
 unchanged between phases so orientation can be recognized independently of phase polarity.
 
+### 8.1 v0.2 dual-lane envelope
+
+The v0.2 browser profile vertically stacks two 70×70 lane regions inside one connected white
+portrait envelope with a 3-cell black outer guard. Each lane region contains its own 3-cell white
+quiet border and 64×64 matrix. The receiver detects the envelope once and divides its projective
+height into two equal lane quadrilaterals.
+
+The global transmission schedule assigns consecutive logical frames to lane 0 and lane 1. Lane 0
+displays phase A then phase B; lane 1 displays phase B then phase A. Both frames advance only after
+the shared two-phase interval completes. Opposite polarity reduces aggregate brightness movement
+but does not change the decoded frame bytes or remove the rapid-flash safety risk.
+
+Senders and receivers must agree on the physical lane layout before acquisition. The CRC-protected
+lane-count field detects a logical mismatch only after an optical frame has already decoded.
+
 For reserved outer-border cells not inside a corner marker, phase-A value is one when
 `((3*x + 5*y) mod 7) < 3`, otherwise zero.
 

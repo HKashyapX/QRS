@@ -4,15 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Receive — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=multilane-foundations-4">
+  <link rel="stylesheet" href="styles.css?v=dual-lane-acquisition-1">
 </head>
 <body>
   <main>
     <a class="back" href="index.html">← QRS home</a>
-    <div class="eyebrow">v0.1.6 · Multi-lane foundations</div>
+    <div class="eyebrow">v0.2.0 · Dual-lane acquisition</div>
     <h1>Receive a file</h1>
     <section class="panel">
       <div class="controls">
+        <label>Optical layout
+          <select id="laneCount">
+            <option value="2" selected>Dual lane — v0.2</option>
+            <option value="1">Single lane — compatibility</option>
+          </select>
+        </label>
         <label class="toggle">Acquisition
           <span><input id="autoTrack" type="checkbox" checked> Auto-track outer frame</span>
         </label>
@@ -32,8 +38,8 @@
       <details class="advanced-controls">
         <summary>Advanced acquisition controls</summary>
         <div class="controls">
-          <label>Manual alignment box <output id="roiValue">384 px</output>
-            <input id="roiSize" type="range" min="256" max="448" step="8" value="384" disabled>
+          <label>Manual lane width <output id="roiValue">288 × 576 px</output>
+            <input id="roiSize" type="range" min="192" max="304" step="8" value="288" disabled>
           </label>
           <label>Minimum cell contrast <output id="contrastValue">24</output>
             <input id="minimumContrast" type="range" min="12" max="80" step="4" value="24">
@@ -67,9 +73,9 @@
         <button id="copyDiagnostics" class="secondary" type="button">Copy full diagnostics</button>
       </div>
     </section>
-    <div class="matrix-shell"><canvas id="preview" width="640" height="640" aria-label="Camera preview and QRS alignment guide; tap the matrix to focus"></canvas></div>
+    <div class="matrix-shell"><canvas id="preview" width="720" height="720" aria-label="Camera preview and QRS dual-lane alignment guide; tap the matrix to focus"></canvas></div>
     <video id="video" class="sr-only-video" playsinline muted></video>
   </main>
-  <script type="module" src="receiver.js?v=multilane-foundations-4"></script>
+  <script type="module" src="receiver.js?v=dual-lane-acquisition-1"></script>
 </body>
 </html>

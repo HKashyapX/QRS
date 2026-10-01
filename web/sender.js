@@ -1,17 +1,17 @@
 import {
   CRYPTO_SUITE,
-  CANVAS_GRID_SIZE,
   FEC_CODEC,
   FRAME_TYPE,
   LtEncoder,
   OpticalTransmissionSchedule,
-  drawOpticalMatrix,
+  drawOpticalLanes,
   encodeLaneFlags,
   encodeOpticalPhase,
+  opticalCanvasGrid,
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=multilane-foundations-2";
+} from "./qrs-core.js?v=dual-lane-acquisition-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");
@@ -24,6 +24,7 @@ const symbolMetric = document.querySelector("#symbolMetric");
 const phaseMetric = document.querySelector("#phaseMetric");
 const displayMetric = document.querySelector("#displayMetric");
 const phaseDurationInput = document.querySelector("#phaseDuration");
+const laneCountInput = document.querySelector("#laneCount");
 const flashAcknowledgementInput = document.querySelector("#flashAcknowledgement");
 const matrixShell = document.querySelector(".matrix-shell");
 
@@ -45,8 +46,20 @@ function updateStartAvailability() {
 
 function updateDisplayMetric() {
   const bounds = canvas.getBoundingClientRect();
-  const physicalSide = Math.min(bounds.width, bounds.height) * (window.devicePixelRatio || 1);
-  displayMetric.textContent = `${(physicalSide / CANVAS_GRID_SIZE).toFixed(1)} display px/cell`;
+  const grid = opticalCanvasGrid(Number(laneCountInput.value));
+  const physicalWidth = bounds.width * (window.devicePixelRatio || 1);
+  displayMetric.textContent = `${(physicalWidth / grid.columns).toFixed(1)} display px/cell · ${laneCountInput.value} lane${laneCountInput.value === "1" ? "" : "s"}`;
+}
+
+function configureCanvas() {
+  const laneCount = Number(laneCountInput.value);
+  const grid = opticalCanvasGrid(laneCount);
+  const cellPixels = 12;
+  canvas.width = grid.columns * cellPixels;
+  canvas.height = grid.rows * cellPixels;
+  canvas.style.aspectRatio = `${grid.columns} / ${grid.rows}`;
+  matrixShell.classList.toggle("dual-lane", laneCount > 1);
+  updateDisplayMetric();
 }
 
 async function holdWakeLock() {
@@ -67,6 +80,11 @@ function blankMatrix() {
   context.textAlign = "center";
   context.fillText("QRS ready", canvas.width / 2, canvas.height / 2);
 }
+
+laneCountInput.addEventListener("change", () => {
+  configureCanvas();
+  blankMatrix();
+});
 
 fileInput.addEventListener("change", () => {
   const [file] = fileInput.files;
@@ -102,7 +120,7 @@ startButton.addEventListener("click", async () => {
   const object = new Uint8Array(await selectedFile.arrayBuffer());
   const encoder = new LtEncoder(object, SYMBOL_SIZE);
   const sessionId = randomSessionId();
-  const laneFlags = encodeLaneFlags({ laneId: 0, laneCount: 1 });
+  const laneCount = Number(laneCountInput.value);
   const manifestPayload = serializeManifest({
     objectSize: object.length,
     symbolSize: SYMBOL_SIZE,
@@ -112,11 +130,17 @@ startButton.addEventListener("click", async () => {
     sha256: new Uint8Array(32),
     filename: safeFilename(selectedFile.name),
   });
-  const manifestFrame = { type: FRAME_TYPE.MANIFEST, flags: laneFlags, sessionId, symbolId: 0, payload: manifestPayload };
+  const manifestFrame = (laneId) => ({
+    type: FRAME_TYPE.MANIFEST,
+    flags: encodeLaneFlags({ laneId, laneCount }),
+    sessionId,
+    symbolId: 0,
+    payload: manifestPayload,
+  });
   const schedule = new OpticalTransmissionSchedule(encoder.sourceSymbolCount);
-  const scheduledFrame = (entry) => entry.type === "manifest" ? manifestFrame : {
+  const scheduledFrame = (entry, laneId) => entry.type === "manifest" ? manifestFrame(laneId) : {
     type: FRAME_TYPE.DATA,
-    flags: laneFlags,
+    flags: encodeLaneFlags({ laneId, laneCount }),
     sessionId,
     symbolId: entry.symbolId,
     payload: encoder.encode(entry.symbolId),
@@ -126,13 +150,14 @@ startButton.addEventListener("click", async () => {
   await holdWakeLock();
   startButton.disabled = true;
   flashAcknowledgementInput.disabled = true;
+  laneCountInput.disabled = true;
   stopButton.disabled = false;
   fullscreenButton.disabled = false;
-  status.textContent = `Transmitting ${object.length.toLocaleString()} bytes as ${encoder.sourceSymbolCount} source symbols · unencrypted session ${sessionId.toString(16).padStart(16, "0")}.`;
+  status.textContent = `Transmitting ${object.length.toLocaleString()} bytes across ${laneCount} optical lane${laneCount === 1 ? "" : "s"} · ${encoder.sourceSymbolCount} source symbols · unencrypted session ${sessionId.toString(16).padStart(16, "0")}.`;
 
   let inverted = false;
-  let currentSchedule = schedule.next();
-  let currentFrame = scheduledFrame(currentSchedule);
+  let currentSchedules = Array.from({ length: laneCount }, () => schedule.next());
+  let currentFrames = currentSchedules.map((entry, laneId) => scheduledFrame(entry, laneId));
   let manifestFrames = 0;
   let systematicFrames = 0;
   let repairFrames = 0;
@@ -148,22 +173,29 @@ startButton.addEventListener("click", async () => {
       animationFrame = requestAnimationFrame(tick);
       return;
     }
-    drawOpticalMatrix(canvas, encodeOpticalPhase(currentFrame, inverted));
+    drawOpticalLanes(canvas, currentFrames.map((frame, laneId) => (
+      encodeOpticalPhase(frame, laneId % 2 === 1 ? !inverted : inverted)
+    )));
     updateDisplayMetric();
     phaseCount += 1;
     const phaseRate = phaseCount > 1 ? (phaseCount - 1) / Math.max(0.001, (now - startedAt) / 1000) : 0;
     const lateness = Math.max(0, now - nextPhaseAt);
     if (lateness > 8) latePhases += 1;
     maximumLateness = Math.max(maximumLateness, lateness);
-    phaseMetric.textContent = `${inverted ? "Phase B" : "Phase A"} · ${phaseRate.toFixed(1)} phases/s · ${latePhases} late (${maximumLateness.toFixed(0)} ms max)`;
+    const phaseLabel = laneCount > 1
+      ? `Display ${inverted ? "B/A" : "A/B"}`
+      : `Phase ${inverted ? "B" : "A"}`;
+    phaseMetric.textContent = `${phaseLabel} · ${phaseRate.toFixed(1)} phases/s · ${latePhases} late (${maximumLateness.toFixed(0)} ms max)`;
     symbolMetric.textContent = `${systematicFrames} source · ${repairFrames} repair · ${manifestFrames} manifest`;
 
     if (inverted) {
-      if (currentSchedule.type === "manifest") manifestFrames += 1;
-      else if (currentSchedule.systematic) systematicFrames += 1;
-      else repairFrames += 1;
-      currentSchedule = schedule.next();
-      currentFrame = scheduledFrame(currentSchedule);
+      currentSchedules.forEach((entry) => {
+        if (entry.type === "manifest") manifestFrames += 1;
+        else if (entry.systematic) systematicFrames += 1;
+        else repairFrames += 1;
+      });
+      currentSchedules = Array.from({ length: laneCount }, () => schedule.next());
+      currentFrames = currentSchedules.map((entry, laneId) => scheduledFrame(entry, laneId));
     }
     inverted = !inverted;
     const duration = Number(phaseDurationInput.value);
@@ -182,6 +214,7 @@ stopButton.addEventListener("click", () => {
   wakeLock = null;
   stopButton.disabled = true;
   flashAcknowledgementInput.disabled = false;
+  laneCountInput.disabled = false;
   updateStartAvailability();
   fullscreenButton.disabled = true;
   phaseMetric.textContent = "Stopped";
@@ -192,6 +225,7 @@ fullscreenButton.addEventListener("click", async () => {
   if (matrixShell.requestFullscreen) await matrixShell.requestFullscreen();
 });
 
+configureCanvas();
 blankMatrix();
 updateDisplayMetric();
 window.addEventListener("resize", updateDisplayMetric);

@@ -636,23 +636,51 @@ export function decodeOpticalPair(
   };
 }
 
-export function drawOpticalMatrix(canvas, cells) {
+export function opticalCanvasGrid(laneCount = 1) {
+  if (!Number.isInteger(laneCount) || laneCount < 1 || laneCount > MAX_OPTICAL_LANES) {
+    throw new Error("Optical canvas lane count must be between 1 and 16");
+  }
+  return {
+    columns: CANVAS_GRID_SIZE,
+    rows: DISPLAY_GRID_SIZE * laneCount + GUARD_CELLS * 2,
+  };
+}
+
+export function drawOpticalLanes(canvas, laneCells) {
+  if (!Array.isArray(laneCells) || !laneCells.length) {
+    throw new Error("At least one optical lane is required");
+  }
+  const grid = opticalCanvasGrid(laneCells.length);
   const context = canvas.getContext("2d", { alpha: false });
-  const cellSize = Math.floor(canvas.width / CANVAS_GRID_SIZE);
-  const canvasGridPixels = cellSize * CANVAS_GRID_SIZE;
-  const canvasOrigin = Math.floor((canvas.width - canvasGridPixels) / 2);
-  const whiteOrigin = canvasOrigin + GUARD_CELLS * cellSize;
-  const whiteSize = DISPLAY_GRID_SIZE * cellSize;
-  const originX = whiteOrigin + QUIET_CELLS * cellSize;
-  const originY = whiteOrigin + QUIET_CELLS * cellSize;
+  const cellSize = Math.max(1, Math.floor(Math.min(canvas.width / grid.columns, canvas.height / grid.rows)));
+  const canvasWidth = cellSize * grid.columns;
+  const canvasHeight = cellSize * grid.rows;
+  const canvasOriginX = Math.floor((canvas.width - canvasWidth) / 2);
+  const canvasOriginY = Math.floor((canvas.height - canvasHeight) / 2);
+  const whiteOriginX = canvasOriginX + GUARD_CELLS * cellSize;
+  const whiteOriginY = canvasOriginY + GUARD_CELLS * cellSize;
+  const whiteWidth = DISPLAY_GRID_SIZE * cellSize;
+  const whiteHeight = DISPLAY_GRID_SIZE * laneCells.length * cellSize;
   context.fillStyle = "#000000";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = "#ffffff";
-  context.fillRect(whiteOrigin, whiteOrigin, whiteSize, whiteSize);
-  for (let y = 0; y < GRID_SIZE; y += 1) {
-    for (let x = 0; x < GRID_SIZE; x += 1) {
-      context.fillStyle = cells[y * GRID_SIZE + x] >= 128 ? "#ffffff" : "#000000";
-      context.fillRect(originX + x * cellSize, originY + y * cellSize, cellSize, cellSize);
+  context.fillRect(whiteOriginX, whiteOriginY, whiteWidth, whiteHeight);
+  laneCells.forEach((cells, laneIndex) => {
+    if (!(cells instanceof Uint8Array) || cells.length !== GRID_SIZE * GRID_SIZE) {
+      throw new Error("Optical lane cells have the wrong size");
     }
-  }
+    const originX = whiteOriginX + QUIET_CELLS * cellSize;
+    const originY = whiteOriginY
+      + (laneIndex * DISPLAY_GRID_SIZE + QUIET_CELLS) * cellSize;
+    for (let y = 0; y < GRID_SIZE; y += 1) {
+      for (let x = 0; x < GRID_SIZE; x += 1) {
+        context.fillStyle = cells[y * GRID_SIZE + x] >= 128 ? "#ffffff" : "#000000";
+        context.fillRect(originX + x * cellSize, originY + y * cellSize, cellSize, cellSize);
+      }
+    }
+  });
+}
+
+export function drawOpticalMatrix(canvas, cells) {
+  drawOpticalLanes(canvas, [cells]);
 }

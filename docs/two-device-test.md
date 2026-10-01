@@ -1,7 +1,8 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.1.5 automatic optical acquisition, mobile focus control, recovery-tail scheduling, and motion feedback. It does not validate encryption,
-colour symbols, or hostile lighting performance.
+This procedure validates v0.2.0 shared-envelope dual-lane acquisition, mobile focus control,
+recovery-tail scheduling, and motion feedback. It does not validate encryption, colour symbols, or
+hostile lighting performance.
 
 ## Equipment
 
@@ -24,25 +25,27 @@ starts only after the baseline succeeds.
    the centre of the matrix; otherwise leave browser-managed focus active.
 7. Leave **Auto-track outer frame** enabled. Minimum contrast remains `24` under **Advanced
    acquisition controls**.
-8. Open **Send a file** on the display device and select `payload.txt`.
-9. Read and acknowledge the rapid-flash warning. The current temporal carrier is for shielded lab
+8. Select **Dual lane — v0.2** on both sender and receiver.
+9. Open **Send a file** on the display device and select the same small test file used for the
+   single-lane reference.
+10. Read and acknowledge the rapid-flash warning. The current temporal carrier is for shielded lab
    testing only; keep the transmitting display facing the camera and do not stare at it.
-10. Start at the validated `50 ms` baseline. Use `67 ms` as the compatibility reference, then test
+11. Start at the validated `50 ms` baseline. Use `67 ms` as the compatibility reference, then test
     `40 ms` and `33 ms` only as channel-limit probes.
-11. Enter fullscreen matrix mode only after confirming that the black guard remains visible.
+12. Enter fullscreen matrix mode only after confirming that the complete portrait guard remains visible.
 
 ## Acquisition
 
-The receiver detects the complete outer white square, smooths its four corners, and projectively
-maps the inner 64×64 data matrix. The three-cell white margin and some of the black guard around it
-must remain visible on all four sides. This remains true in fullscreen mode.
+The receiver detects the complete outer white portrait envelope, smooths its four corners, and
+projectively divides it into two 64×64 lane regions. The outer black guard must remain visible on all
+four sides. This remains true in fullscreen mode.
 
 1. Hold the camera approximately 25–45 cm from the display.
-2. Point the camera so the complete white square and a thin black surround are visible; exact
+2. Point the camera so the complete white portrait envelope and a thin black surround are visible; exact
    alignment is not required.
 3. Move and tilt the camera slowly. The overlay should follow the four frame corners.
-4. A green quadrilateral means the outer frame remains tracked. The text distinguishes a recently
-   decoded phase from a tracked frame waiting for a clean phase.
+4. A green quadrilateral means the outer envelope remains tracked. Blue lane boxes identify recently
+   recognized lane markers; yellow lane boxes are waiting for a clean phase.
 5. If automatic detection never locks, disable it and use the alignment slider as a fallback. Record
    that fallback in the test results.
 
@@ -72,21 +75,22 @@ receiver completes.
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Final 10% resolves slowly | Remaining source symbols were erased and need a repeat or useful repair equation | Continue transmission and record source/repair plus duplicate-symbol diagnostics |
 | Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and compare against the 67 ms reference |
-| Camera pixels/cell stays below 4 | The matrix is too small in the camera image | Move the receiver closer while keeping the black guard visible |
+| Camera pixels/cell stays below 4 | Each lane is too small in the camera image | Move closer while keeping the full portrait guard visible, or compare single-lane mode |
+| Only one lane routes frames | One half of the envelope is blurred, cropped, or sampled at too few pixels/cell | Inspect per-lane locks/errors, change distance, and verify both pages selected dual lane |
 
 ## Test ladder
 
 Run tests in this order and stop at the first failure:
 
-1. Small non-sensitive file at 50 ms, windowed, with the receiver at 30 FPS.
-2. Repeat in fullscreen. The black guard must remain visible.
-3. Run the same file at 67, 40, and 33 ms; stop if the optical-pair rate falls or exposure to the
-   rapid flashing becomes uncomfortable.
-4. Repeat 50 ms with the receiver requesting 60 FPS. Record requested, granted, and capability FPS.
-5. A 10 KB binary file at the best measured combination.
-6. A 150 KB binary file only after the smaller transfer completes reliably.
-7. Change distance and camera angle.
-8. Repeat using another browser after the Chromium baseline succeeds.
+1. Small non-sensitive file at 50 ms, single lane, with the receiver at 30 FPS.
+2. Repeat the same file and physical setup in dual-lane mode.
+3. Confirm both lanes route frames and compare dual goodput against the single-lane reference.
+4. Repeat dual lane in fullscreen. The complete portrait guard must remain visible.
+5. Run dual lane at 67 and 40 ms; treat 33 ms only as a channel-limit probe.
+6. Repeat dual 50 ms with the receiver requesting 60 FPS. Record requested, granted, and capability FPS.
+7. A 10 KB binary file at the best measured combination.
+8. A 150 KB binary file only after the smaller transfer completes reliably.
+9. Change distance and camera angle, then repeat in another browser.
 
 ## Record after each attempt
 
@@ -106,6 +110,7 @@ needed, then use **Copy full diagnostics** after each run. The copied report inc
 - Hot-path capture, detection, sampling, classification, and pairing time.
 - Camera pixels per cell, focus capabilities/state, and focus request result.
 - Detector runs versus reused tracks, plus the ranked top-error line.
+- Per-lane sampled/locks/failures, valid/rejected pairs, routed frames, and last errors.
 - Whether the downloaded bytes matched the original.
 
 These measurements determine whether the next work belongs in timing, marker detection, sampling,

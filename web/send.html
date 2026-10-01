@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Send — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=multilane-foundations-4">
+  <link rel="stylesheet" href="styles.css?v=dual-lane-acquisition-1">
 </head>
 <body>
   <main>
     <a class="back" href="index.html">← QRS home</a>
-    <div class="eyebrow">v0.1.6 · Multi-lane foundations</div>
+    <div class="eyebrow">v0.2.0 · Dual-lane acquisition</div>
     <h1>Send a file</h1>
     <section class="panel">
       <input id="file" type="file">
       <div class="controls">
+        <label>Optical layout
+          <select id="laneCount">
+            <option value="2" selected>Dual lane — v0.2</option>
+            <option value="1">Single lane — compatibility</option>
+          </select>
+        </label>
         <label>Phase duration
           <select id="phaseDuration">
             <option value="67">67 ms/phase — 7.5 data frames/s</option>
@@ -39,6 +45,6 @@
     </section>
     <div class="matrix-shell" id="matrixShell"><canvas id="matrix" width="912" height="912" aria-label="Animated QRS optical matrix"></canvas></div>
   </main>
-  <script type="module" src="sender.js?v=multilane-foundations-4"></script>
+  <script type="module" src="sender.js?v=dual-lane-acquisition-1"></script>
 </body>
 </html>

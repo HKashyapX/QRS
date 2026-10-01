@@ -11,6 +11,7 @@ import {
   decodeLaneFlags,
   encodeLaneFlags,
   encodeOpticalPhase,
+  opticalCanvasGrid,
   parseFrame,
   serializeFrame,
   transformOpticalMatrix,
@@ -18,6 +19,9 @@ import {
 
 const crcVector = new TextEncoder().encode("123456789");
 assert.equal(crc32c(crcVector), 0xe3069283);
+assert.deepEqual(opticalCanvasGrid(1), { columns: 76, rows: 76 });
+assert.deepEqual(opticalCanvasGrid(2), { columns: 76, rows: 146 });
+assert.throws(() => opticalCanvasGrid(0), /lane count/i);
 
 const originalFrame = {
   type: FRAME_TYPE.DATA,
