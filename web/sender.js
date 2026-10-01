@@ -11,7 +11,7 @@ import {
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=multilane-foundations-1";
+} from "./qrs-core.js?v=multilane-foundations-2";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");

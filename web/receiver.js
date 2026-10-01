@@ -9,14 +9,14 @@ import {
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=multilane-foundations-1";
+} from "./qrs-core.js?v=multilane-foundations-2";
 import {
   OpticalLane,
   OpticalTracker,
   previewPointToVideoPoint,
   quadCellSize,
   quadMotion,
-} from "./acquisition.js?v=multilane-foundations-1";
+} from "./acquisition.js?v=multilane-foundations-2";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -70,6 +70,7 @@ let lastMarkerLockAt = -Infinity;
 let activeQuad = null;
 let focusModes = [];
 let pointFocusSupported = false;
+let pointConstraintUnderstood = false;
 let focusState = "not started";
 let focusIndicator = null;
 let focusIndicatorUntil = -Infinity;
@@ -247,9 +248,12 @@ async function applyFocusConstraint(constraint) {
   if (!cameraTrack || !Object.keys(constraint).length) return false;
   const current = { ...(cameraTrack.getConstraints?.() ?? {}) };
   delete current.advanced;
-  if (constraint.focusMode) current.focusMode = { exact: constraint.focusMode };
+  // Focus is an optical hint, not a hard stream requirement. Keeping these
+  // constraints non-exact prevents a rejected focus point from stopping an
+  // otherwise usable camera track.
+  if (constraint.focusMode) current.focusMode = constraint.focusMode;
   if (constraint.pointsOfInterest) {
-    current.pointsOfInterest = { exact: constraint.pointsOfInterest };
+    current.pointsOfInterest = constraint.pointsOfInterest;
   }
   await cameraTrack.applyConstraints(current);
   return true;
@@ -259,7 +263,10 @@ async function configureCameraFocus() {
   const capabilities = cameraTrack?.getCapabilities?.() ?? {};
   const supported = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
   focusModes = Array.isArray(capabilities.focusMode) ? capabilities.focusMode : [];
-  pointFocusSupported = Boolean(supported.pointsOfInterest);
+  pointConstraintUnderstood = Boolean(supported.pointsOfInterest);
+  // getSupportedConstraints() is browser-wide. Only getCapabilities() tells us
+  // whether this selected camera track can actually accept a focus point.
+  pointFocusSupported = capabilities.pointsOfInterest === true;
   if (focusModes.includes("continuous")) {
     try {
       await applyFocusConstraint(focusConstraint("continuous"));
@@ -270,13 +277,24 @@ async function configureCameraFocus() {
   } else {
     focusState = focusModes.length ? focusModes.join(",") : "browser-managed";
   }
-  focusMetric.textContent = pointFocusSupported || focusModes.length
+  focusMetric.textContent = pointFocusSupported
     ? "Focus: tap the matrix"
     : "Focus: camera automatic";
 }
 
 async function focusCameraAt(canvasPoint) {
   if (!running || !cameraTrack) return;
+  const mode = focusModes.includes("single-shot")
+    ? "single-shot"
+    : (focusModes.includes("continuous") ? "continuous" : null);
+  if (!pointFocusSupported && !mode) {
+    focusState = focusModes.length
+      ? `browser-managed (${focusModes.join(",")})`
+      : "browser-managed";
+    focusMetric.textContent = "Focus: camera automatic";
+    updateDiagnostics(true);
+    return;
+  }
   counters.focusRequests += 1;
   focusIndicator = canvasPoint;
   focusIndicatorUntil = performance.now() + FOCUS_INDICATOR_MS;
@@ -287,9 +305,6 @@ async function focusCameraAt(canvasPoint) {
     width: video.videoWidth,
     height: video.videoHeight,
   });
-  const mode = focusModes.includes("single-shot")
-    ? "single-shot"
-    : (focusModes.includes("continuous") ? "continuous" : null);
   const requested = focusConstraint(mode, point);
   try {
     if (!await applyFocusConstraint(requested)) throw new Error("Camera exposes no focus controls");
@@ -304,7 +319,8 @@ async function focusCameraAt(canvasPoint) {
       focusMetric.textContent = "Focus: centre sweep";
     } catch (error) {
       counters.focusFailures += 1;
-      focusState = `unavailable (${error.name ?? error.message})`;
+      const failedConstraint = error.constraint ? `: ${error.constraint}` : "";
+      focusState = `unavailable (${error.name ?? error.message}${failedConstraint})`;
       focusMetric.textContent = "Focus: browser did not expose control";
     }
   }
@@ -489,7 +505,7 @@ function updateDiagnostics(force = false) {
     `geometry pair rejects: ${counters.geometryRejects}`,
     `orphan/duplicate phase B: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
-    `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "yes" : "no"}`,
+    `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "track yes" : `track no (browser ${pointConstraintUnderstood ? "yes" : "no"})`}`,
     `focus requests/successes/failures: ${counters.focusRequests}/${counters.focusSuccesses}/${counters.focusFailures}`,
     `focus state: ${focusState}`,
     `optical bottleneck: ${counters.sampled < 30

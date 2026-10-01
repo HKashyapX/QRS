@@ -167,6 +167,10 @@ multiplexing. The following foundations are implemented:
 Legacy single-lane flags retain their original byte representation, and the browser remains in
 single-lane mode. Physical dual-lane throughput is therefore not claimed by v0.1.6.
 
+The validated phone-camera baseline is now **50 ms/phase**. The transmitter exposes only the
+sub-100 ms test ladder (67, 50, 40 and 33 ms/phase); slower compatibility modes are no longer part
+of the active optimization path.
+
 ### v0.2.x — Dual-lane optical acquisition
 
 The proposed dual-lane mode places two independent matrices in one camera image. It should use one

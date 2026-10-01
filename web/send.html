@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Send — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=multilane-foundations-1">
+  <link rel="stylesheet" href="styles.css?v=multilane-foundations-2">
 </head>
 <body>
   <main>
@@ -16,12 +16,9 @@
       <div class="controls">
         <label>Phase duration
           <select id="phaseDuration">
-            <option value="100">100 ms/phase — 5 data frames/s</option>
-            <option value="150" selected>150 ms/phase — 3.3 data frames/s</option>
-            <option value="220">220 ms/phase — easier camera lock</option>
-            <option value="300">300 ms/phase — troubleshooting</option>
             <option value="67">67 ms/phase — 7.5 data frames/s</option>
-            <option value="50">50 ms/phase — 10 data frames/s</option>
+            <option value="50" selected>50 ms/phase — validated baseline</option>
+            <option value="40">40 ms/phase — 12.5 data frames/s</option>
             <option value="33">33 ms/phase — 15 data frames/s</option>
           </select>
         </label>
@@ -36,6 +33,6 @@
     </section>
     <div class="matrix-shell" id="matrixShell"><canvas id="matrix" width="912" height="912" aria-label="Animated QRS optical matrix"></canvas></div>
   </main>
-  <script type="module" src="sender.js?v=multilane-foundations-1"></script>
+  <script type="module" src="sender.js?v=multilane-foundations-2"></script>
 </body>
 </html>
