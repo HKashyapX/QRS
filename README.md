@@ -12,6 +12,13 @@ from whichever fountain-coded symbols survived the camera channel.
 > QRS Protocol v0 is a research prototype. Transfers are currently **not encrypted or
 > authenticated**. Do not use it for sensitive data.
 
+> [!CAUTION]
+> The current full-matrix A/B inversion produces rapid, large-area, high-contrast flashing. Every
+> exposed sub-100 ms mode exceeds three flashes per second and must be treated as a shielded lab
+> experiment—not a visually safe public interface. Keep the transmitting display facing the
+> camera, do not stare at it, and do not operate it around anyone sensitive to flashing light.
+> A non-flashing optical carrier is a release blocker for public deployment.
+
 ## Project status
 
 The current release is **v0.1.6 — Multi-lane Foundations**. It preserves the working
@@ -26,7 +33,8 @@ protocol.
 | Differential A/B optical signalling | Implemented | Alternates a matrix with its inverse to suppress static illumination |
 | Loss-tolerant reconstruction | Implemented | Systematic symbols, LT-style repair symbols, peeling, and bounded GF(2) elimination |
 | Integrity checking | Implemented | CRC-32C protects optical frames |
-| Mobile focus support | Implemented where exposed | Continuous focus, first-lock focus, and tap-to-focus depend on browser/camera capabilities |
+| Mobile focus support | Implemented where exposed | Continuous focus and tap-to-focus depend on browser/camera track capabilities |
+| 60 FPS camera request | Experimental | Receiver can request 60 FPS; diagnostics report requested, granted, and advertised range |
 | Handheld acquisition | Experimental | Works, but motion, focus, glare, display PWM, and pixels per cell still affect throughput |
 | Encryption and sender authentication | Not implemented | Reserved protocol identifiers exist; captured footage is currently decodable |
 | Adaptive grid density | Planned | Intended to choose a safe matrix size from the measured optical channel |
@@ -84,6 +92,8 @@ The v0.1.x series moved the project from exact manual alignment toward practical
 - Continuous and point-focus requests are used when the browser exposes those camera controls.
 - Diagnostics report timing, lock failures, optical contrast, pixels per cell, phase pairing,
   accepted source/repair frames, duplicates, decoder progress, goodput, and focus results.
+- Receiver diagnostics are grouped into transfer, optical, and camera sections; copied reports still
+  contain the complete dataset.
 
 Real-device results vary substantially. A successful v0.1.5 field run reported completion at a
 67 ms phase duration, but it also showed that marker acquisition and the display-to-camera optical

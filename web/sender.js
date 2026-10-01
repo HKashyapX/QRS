@@ -24,6 +24,7 @@ const symbolMetric = document.querySelector("#symbolMetric");
 const phaseMetric = document.querySelector("#phaseMetric");
 const displayMetric = document.querySelector("#displayMetric");
 const phaseDurationInput = document.querySelector("#phaseDuration");
+const flashAcknowledgementInput = document.querySelector("#flashAcknowledgement");
 const matrixShell = document.querySelector(".matrix-shell");
 
 const MAX_FILE_SIZE = 1024 * 1024;
@@ -33,6 +34,14 @@ let selectedFile = null;
 let running = false;
 let animationFrame = null;
 let wakeLock = null;
+
+function selectedFileIsValid() {
+  return Boolean(selectedFile?.size && selectedFile.size <= MAX_FILE_SIZE);
+}
+
+function updateStartAvailability() {
+  startButton.disabled = running || !selectedFileIsValid() || !flashAcknowledgementInput.checked;
+}
 
 function updateDisplayMetric() {
   const bounds = canvas.getBoundingClientRect();
@@ -63,18 +72,29 @@ fileInput.addEventListener("change", () => {
   const [file] = fileInput.files;
   selectedFile = file ?? null;
   if (!file) {
-    startButton.disabled = true;
     fileMetric.textContent = "No file";
+    updateStartAvailability();
     return;
   }
   if (!file.size || file.size > MAX_FILE_SIZE) {
-    startButton.disabled = true;
     status.textContent = file.size ? "File exceeds the 1 MiB demo limit." : "Empty files are not supported yet.";
+    updateStartAvailability();
     return;
   }
-  startButton.disabled = false;
   fileMetric.textContent = `${file.name} · ${file.size.toLocaleString()} bytes`;
-  status.textContent = "Ready. Open the receiver on a second device before starting.";
+  status.textContent = flashAcknowledgementInput.checked
+    ? "Ready. Open the receiver on a second device before starting."
+    : "File ready. Confirm the rapid-flash warning to enable transmission.";
+  updateStartAvailability();
+});
+
+flashAcknowledgementInput.addEventListener("change", () => {
+  updateStartAvailability();
+  if (selectedFileIsValid() && !running) {
+    status.textContent = flashAcknowledgementInput.checked
+      ? "Ready. Open the receiver on a second device before starting."
+      : "File ready. Confirm the rapid-flash warning to enable transmission.";
+  }
 });
 
 startButton.addEventListener("click", async () => {
@@ -105,6 +125,7 @@ startButton.addEventListener("click", async () => {
   running = true;
   await holdWakeLock();
   startButton.disabled = true;
+  flashAcknowledgementInput.disabled = true;
   stopButton.disabled = false;
   fullscreenButton.disabled = false;
   status.textContent = `Transmitting ${object.length.toLocaleString()} bytes as ${encoder.sourceSymbolCount} source symbols · unencrypted session ${sessionId.toString(16).padStart(16, "0")}.`;
@@ -160,7 +181,8 @@ stopButton.addEventListener("click", () => {
   void wakeLock?.release();
   wakeLock = null;
   stopButton.disabled = true;
-  startButton.disabled = !selectedFile;
+  flashAcknowledgementInput.disabled = false;
+  updateStartAvailability();
   fullscreenButton.disabled = true;
   phaseMetric.textContent = "Stopped";
   status.textContent = "Transmission stopped. The sender receives no completion acknowledgement.";

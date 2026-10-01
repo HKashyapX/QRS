@@ -31,6 +31,7 @@ const confidenceMetric = document.querySelector("#confidenceMetric");
 const focusMetric = document.querySelector("#focusMetric");
 const download = document.querySelector("#download");
 const facingModeInput = document.querySelector("#facingMode");
+const cameraFrameRateInput = document.querySelector("#cameraFrameRate");
 const roiSizeInput = document.querySelector("#roiSize");
 const roiValue = document.querySelector("#roiValue");
 const autoTrackInput = document.querySelector("#autoTrack");
@@ -38,6 +39,9 @@ const minimumContrastInput = document.querySelector("#minimumContrast");
 const contrastValue = document.querySelector("#contrastValue");
 const resetButton = document.querySelector("#reset");
 const diagnosticsElement = document.querySelector("#diagnostics");
+const transferDiagnosticsElement = document.querySelector("#transferDiagnostics");
+const opticalDiagnosticsElement = document.querySelector("#opticalDiagnostics");
+const cameraDiagnosticsElement = document.querySelector("#cameraDiagnostics");
 const copyDiagnosticsButton = document.querySelector("#copyDiagnostics");
 
 export function opticalCellCenter(cell, roiSize) {
@@ -56,6 +60,10 @@ let processingTotal = 0;
 let processingMaximum = 0;
 let lastDiagnosticsAt = -Infinity;
 let cameraSettings = "not started";
+let requestedCameraFrameRate = 30;
+let cameraFrameRateCapability = "unknown";
+let transferStartedAt = 0;
+let transferCompletedAt = 0;
 let consecutiveMarkerFailures = 0;
 const frameRouter = new LaneFrameRouter();
 const opticalLanes = [new OpticalLane({ laneId: 0 })];
@@ -340,6 +348,8 @@ function acceptFrame(frame) {
       activeSession = frame.sessionId;
       manifest = nextManifest;
       decoder = new LtDecoder(manifest);
+      transferStartedAt = performance.now();
+      transferCompletedAt = 0;
       progress.value = 0;
       sessionMetric.textContent = `${manifest.filename} · session ${activeSession.toString(16).slice(-8)}`;
       status.textContent = "Manifest locked. Collecting data symbols…";
@@ -370,6 +380,7 @@ function acceptFrame(frame) {
     download.href = downloadUrl;
     download.download = manifest.filename;
     download.hidden = false;
+    transferCompletedAt = performance.now();
     status.textContent = "Transfer complete. Download the reconstructed file.";
     progress.value = 100;
   }
@@ -458,14 +469,45 @@ function updateDiagnostics(force = false) {
   const resolvedBytes = decoder && manifest
     ? Math.min(manifest.objectSize, decoder.resolvedCount * manifest.symbolSize)
     : 0;
+  const transferElapsedSeconds = transferStartedAt
+    ? Math.max(0.001, ((transferCompletedAt || diagnosticsNow) - transferStartedAt) / 1000)
+    : 0;
+  const transferGoodput = transferElapsedSeconds ? resolvedBytes / transferElapsedSeconds : 0;
+  const remainingBytes = manifest ? Math.max(0, manifest.objectSize - resolvedBytes) : 0;
+  const estimatedRemaining = transferGoodput > 0 && !transferCompletedAt
+    ? formatDuration(remainingBytes / transferGoodput)
+    : (transferCompletedAt ? "complete" : "unknown");
+  const observedPairs = validFrames + counters.pairRejects;
+  const pairAcceptance = observedPairs ? validFrames / observedPairs : 0;
+  const duplicateRate = counters.dataFrames ? counters.duplicateSymbols / counters.dataFrames : 0;
   const commonErrors = [...errorCounts.entries()]
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
     .map(([message, count]) => `${count}× ${message}`)
     .join(" | ") || "none";
   const laneSnapshot = frameRouter.snapshot();
-  diagnosticsElement.textContent = [
+  const opticalBottleneck = counters.sampled < 30
+    ? "collecting evidence"
+    : (markerLockRate < 0.2
+      ? "orientation sampling/focus"
+      : (validRate < 0.5 ? "phase pairing/cell contrast" : "transport recovery"));
+  const transferLines = [
+    `file: ${manifest ? `${manifest.filename} · ${manifest.objectSize.toLocaleString()} bytes` : "waiting for manifest"}`,
+    `state: ${transferCompletedAt ? "complete" : (manifest ? "receiving" : "waiting")}`,
+    `transfer time: ${transferStartedAt ? formatDuration(transferElapsedSeconds) : "not started"}`,
+    `rough remaining time: ${estimatedRemaining}`,
+    `progress: ${decoder ? `${progress.value.toFixed(1)}% · ${decoder.resolvedCount}/${decoder.sourceSymbolCount} symbols` : "0.0%"}`,
+    `resolved bytes/goodput: ${resolvedBytes.toLocaleString()} / ${transferGoodput.toFixed(1)} bytes/s`,
+    `valid/rejected pairs: ${validFrames}/${counters.pairRejects} (${(pairAcceptance * 100).toFixed(1)}% accepted · ${validRate.toFixed(2)} valid/s)`,
+    `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
+    `unique/duplicate data symbols: ${counters.uniqueSymbols}/${counters.duplicateSymbols} (${(duplicateRate * 100).toFixed(1)}% duplicate)`,
+    `accepted source/repair frames: ${counters.systematicDataFrames}/${counters.repairDataFrames}`,
+    `optical bottleneck: ${opticalBottleneck}`,
+  ];
+  const cameraLines = [
     `camera frames/rate: ${counters.cameraFrames} / ${observedFps.toFixed(1)} fps`,
+    `camera fps requested/granted: ${requestedCameraFrameRate} / ${cameraTrack?.getSettings?.()?.frameRate ?? "unknown"}`,
+    `camera fps capability: ${cameraFrameRateCapability}`,
     `camera settings: ${cameraSettings}`,
     `duplicate camera callbacks: ${counters.duplicateCallbacks}`,
     `processing avg/max: ${averageProcessing.toFixed(1)} / ${processingMaximum.toFixed(1)} ms`,
@@ -477,6 +519,11 @@ function updateDiagnostics(force = false) {
       counters.sampled ? counters.classificationTime / counters.sampled : 0,
       counters.phasePairObservations ? counters.pairTime / counters.phasePairObservations : 0,
     ].map((value) => value.toFixed(1)).join("/")} ms`,
+    `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "track yes" : `track no (browser ${pointConstraintUnderstood ? "yes" : "no"})`}`,
+    `focus requests/successes/failures: ${counters.focusRequests}/${counters.focusSuccesses}/${counters.focusFailures}`,
+    `focus state: ${focusState}`,
+  ];
+  const opticalLines = [
     `sampled grids: ${counters.sampled}`,
     `marker locks/failures: ${counters.markerLocks}/${counters.markerFailures}`,
     `marker lock rate: ${(markerLockRate * 100).toFixed(1)}%`,
@@ -492,30 +539,33 @@ function updateDiagnostics(force = false) {
     `accepted weak cells avg/max: ${validFrames
       ? `${(counters.acceptedWeakCells / validFrames).toFixed(1)}/${counters.acceptedWeakCellsMaximum}`
       : "0/0"}`,
-    `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
     `optical lanes configured/active: ${opticalLanes.length}/${laneSnapshot.laneCount || 1}`,
     `routed frames by lane: ${laneSnapshot.framesByLane.join("/") || "0"}`,
-    `accepted source/repair frames: ${counters.systematicDataFrames}/${counters.repairDataFrames}`,
-    `unique/duplicate data symbols: ${counters.uniqueSymbols}/${counters.duplicateSymbols}`,
-    `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
-    `estimated resolved goodput: ${(resolvedBytes / elapsedSeconds).toFixed(1)} bytes/s`,
     `acquisition: ${autoTrackInput.checked ? "automatic" : `manual ${roiSizeInput.value}px`}`,
     `tracked/missed frames: ${counters.acquisitions}/${counters.acquisitionMisses}`,
     `detections/reused tracks: ${counters.detectionRuns}/${counters.reusedTracks}`,
     `geometry pair rejects: ${counters.geometryRejects}`,
     `orphan/duplicate phase B: ${counters.orphanPhaseB}/${counters.duplicatePhaseB}`,
     `minimum contrast: ${minimumContrastInput.value}`,
-    `focus modes/point support: ${focusModes.join(",") || "none"}/${pointFocusSupported ? "track yes" : `track no (browser ${pointConstraintUnderstood ? "yes" : "no"})`}`,
-    `focus requests/successes/failures: ${counters.focusRequests}/${counters.focusSuccesses}/${counters.focusFailures}`,
-    `focus state: ${focusState}`,
-    `optical bottleneck: ${counters.sampled < 30
-      ? "collecting evidence"
-      : (markerLockRate < 0.2
-        ? "orientation sampling/focus"
-        : (validRate < 0.5 ? "phase pairing/cell contrast" : "transport recovery"))}`,
+    `optical bottleneck: ${opticalBottleneck}`,
     `last pair error: ${lastDiagnosticError}`,
     `top errors: ${commonErrors}`,
+  ];
+  transferDiagnosticsElement.textContent = transferLines.join("\n");
+  opticalDiagnosticsElement.textContent = opticalLines.join("\n");
+  cameraDiagnosticsElement.textContent = cameraLines.join("\n");
+  diagnosticsElement.textContent = [
+    "TRANSFER DETAILS", ...transferLines,
+    "", "OPTICAL QUALITY", ...opticalLines,
+    "", "CAMERA PERFORMANCE", ...cameraLines,
   ].join("\n");
+}
+
+function formatDuration(seconds) {
+  const wholeSeconds = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(wholeSeconds / 60);
+  const remainder = wholeSeconds % 60;
+  return minutes ? `${minutes}m ${remainder.toString().padStart(2, "0")}s` : `${remainder}s`;
 }
 
 function recordError(error) {
@@ -580,12 +630,13 @@ function processVideoFrame(now, metadata) {
 
 cameraButton.addEventListener("click", async () => {
   try {
+    requestedCameraFrameRate = Number(cameraFrameRateInput.value);
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: { ideal: facingModeInput.value },
         width: { ideal: 1280 },
         height: { ideal: 720 },
-        frameRate: { ideal: 30 },
+        frameRate: { ideal: requestedCameraFrameRate },
         advanced: [{ focusMode: "continuous" }],
       },
       audio: false,
@@ -593,6 +644,10 @@ cameraButton.addEventListener("click", async () => {
     video.srcObject = stream;
     await video.play();
     [cameraTrack] = stream.getVideoTracks();
+    const capabilities = cameraTrack?.getCapabilities?.() ?? {};
+    cameraFrameRateCapability = capabilities.frameRate
+      ? `${capabilities.frameRate.min ?? "?"}-${capabilities.frameRate.max ?? "?"} fps`
+      : "not exposed";
     await configureCameraFocus();
     const settings = cameraTrack?.getSettings?.() ?? {};
     cameraSettings = `${settings.width ?? video.videoWidth}×${settings.height ?? video.videoHeight}`
@@ -601,8 +656,10 @@ cameraButton.addEventListener("click", async () => {
       + `${settings.focusMode ? ` · focus ${settings.focusMode}` : ""}`;
     running = true;
     cameraButton.disabled = true;
+    facingModeInput.disabled = true;
+    cameraFrameRateInput.disabled = true;
     stopButton.disabled = false;
-    status.textContent = "Camera active. Tap the matrix to focus, then keep the complete white square and some black surround visible.";
+    status.textContent = `Camera active at ${settings.frameRate ?? "unknown"} FPS (${requestedCameraFrameRate} requested). Keep the complete white square and some black surround visible.`;
     scheduleVideoFrame();
   } catch (error) {
     status.textContent = `Camera could not start: ${error.message}`;
@@ -630,6 +687,8 @@ function resetTransfer() {
   lastCameraFrameAt = 0;
   processingTotal = 0;
   processingMaximum = 0;
+  transferStartedAt = 0;
+  transferCompletedAt = 0;
   lastDiagnosticsAt = -Infinity;
   consecutiveMarkerFailures = 0;
   Object.keys(counters).forEach((key) => { counters[key] = 0; });
@@ -662,7 +721,7 @@ copyDiagnosticsButton.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(report);
     copyDiagnosticsButton.textContent = "Copied";
-    window.setTimeout(() => { copyDiagnosticsButton.textContent = "Copy diagnostics"; }, 1600);
+    window.setTimeout(() => { copyDiagnosticsButton.textContent = "Copy full diagnostics"; }, 1600);
   } catch (error) {
     status.textContent = `Could not copy diagnostics: ${error.message}`;
   }
@@ -706,6 +765,8 @@ stopButton.addEventListener("click", () => {
   automaticFocusRequested = false;
   video.srcObject = null;
   cameraButton.disabled = false;
+  facingModeInput.disabled = false;
+  cameraFrameRateInput.disabled = false;
   stopButton.disabled = true;
   focusMetric.textContent = "Focus: stopped";
   status.textContent = "Camera stopped.";

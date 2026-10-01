@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Send — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=multilane-foundations-2">
+  <link rel="stylesheet" href="styles.css?v=multilane-foundations-4">
 </head>
 <body>
   <main>
@@ -23,6 +23,12 @@
           </select>
         </label>
       </div>
+      <div class="status warning" role="alert">
+        <strong>Rapid-flash prototype.</strong> Every current transmission mode exceeds the general
+        three-flashes-per-second accessibility limit. Keep the sender facing the receiver, do not
+        stare at the matrix, and do not use it around anyone sensitive to flashing light.
+        <label class="safety-confirm"><input id="flashAcknowledgement" type="checkbox"> I understand this experimental display risk.</label>
+      </div>
       <div class="actions">
         <button id="start" disabled>Start transmission</button>
         <button id="stop" class="secondary" disabled>Stop</button>
@@ -33,6 +39,6 @@
     </section>
     <div class="matrix-shell" id="matrixShell"><canvas id="matrix" width="912" height="912" aria-label="Animated QRS optical matrix"></canvas></div>
   </main>
-  <script type="module" src="sender.js?v=multilane-foundations-3"></script>
+  <script type="module" src="sender.js?v=multilane-foundations-4"></script>
 </body>
 </html>

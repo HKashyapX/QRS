@@ -20,13 +20,16 @@ starts only after the baseline succeeds.
 3. Set the sender display brightness to approximately 80–100%.
 4. Open **Receive a file** on the camera device and allow camera access.
 5. Select the rear camera.
-6. After the preview starts, tap the centre of the displayed QRS matrix once and confirm that the
-   focus metric reports either a point acceptance or a centre sweep.
+6. Leave the receiver at **30 FPS** for the baseline. If the camera track exposes point focus, tap
+   the centre of the matrix; otherwise leave browser-managed focus active.
 7. Leave **Auto-track outer frame** enabled. Minimum contrast remains `24` under **Advanced
    acquisition controls**.
 8. Open **Send a file** on the display device and select `payload.txt`.
-9. Select `300 ms` phase duration for the first acquisition, then work down the timing ladder.
-10. Enter fullscreen matrix mode.
+9. Read and acknowledge the rapid-flash warning. The current temporal carrier is for shielded lab
+   testing only; keep the transmitting display facing the camera and do not stare at it.
+10. Start at the validated `50 ms` baseline. Use `67 ms` as the compatibility reference, then test
+    `40 ms` and `33 ms` only as channel-limit probes.
+11. Enter fullscreen matrix mode only after confirming that the black guard remains visible.
 
 ## Acquisition
 
@@ -62,33 +65,33 @@ receiver completes.
 |---|---|---|
 | Tracked count remains zero | Outer white frame is cropped, too small, or merged into a bright background | Show all four sides, move closer, or place the sender against a darker background |
 | Tracking rises but marker locks remain zero | Detected quadrilateral is not the QRS frame or sampling is distorted | Reduce glare, move closer, or try manual fallback |
-| Phase-pilot errors dominate | Motion blur, rolling shutter, or a phase transition was captured | Increase phase duration or move farther from a PWM-limited display |
-| Only phase A or phase B increases | Camera misses one temporal phase | Increase phase duration to 300 ms |
-| Marker locks rise but valid frames remain zero | Sampling is unstable, blurred, or phase timing is mismatched | Move closer, slow the phase duration, and reduce camera motion |
+| Phase-pilot errors dominate | Motion blur, rolling shutter, or a phase transition was captured | Try the 67 ms reference or the experimental 60 FPS camera request |
+| Only phase A or phase B increases | Camera misses one temporal phase | Try the 67 ms reference and compare 30 versus 60 FPS acquisition |
+| Marker locks rise but valid frames remain zero | Sampling is unstable, blurred, or phase timing is mismatched | Move closer, try 67 ms, and reduce camera motion |
 | Valid frames rise but manifest remains zero | Manifest frames were missed | Continue holding steady; the sender repeats the manifest every 24 logical frames |
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Final 10% resolves slowly | Remaining source symbols were erased and need a repeat or useful repair equation | Continue transmission and record source/repair plus duplicate-symbol diagnostics |
-| Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and try a slower phase duration |
+| Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and compare against the 67 ms reference |
 | Camera pixels/cell stays below 4 | The matrix is too small in the camera image | Move the receiver closer while keeping the black guard visible |
 
 ## Test ladder
 
 Run tests in this order and stop at the first failure:
 
-1. Existing 23-byte `payload.txt` at 300 ms, windowed.
-2. Repeat the 23-byte file at 300 ms in fullscreen. The black guard must remain visible.
-3. Use 150 ms for the direct v0.1.1 comparison. Repeat at 220 ms if transition, pilot, or contrast
-   errors remain dominant; test 100 ms only after 150 ms is reliable.
-4. A 1 KB text file at the chosen duration.
-5. A 10 KB image or binary file at the chosen duration.
-6. Try 67, 50, and 33 ms only as channel-limit probes; record actual camera FPS and errors.
+1. Small non-sensitive file at 50 ms, windowed, with the receiver at 30 FPS.
+2. Repeat in fullscreen. The black guard must remain visible.
+3. Run the same file at 67, 40, and 33 ms; stop if the optical-pair rate falls or exposure to the
+   rapid flashing becomes uncomfortable.
+4. Repeat 50 ms with the receiver requesting 60 FPS. Record requested, granted, and capability FPS.
+5. A 10 KB binary file at the best measured combination.
+6. A 150 KB binary file only after the smaller transfer completes reliably.
 7. Change distance and camera angle.
-8. Repeat using Firefox after Chromium succeeds.
+8. Repeat using another browser after the Chromium baseline succeeds.
 
 ## Record after each attempt
 
-Expand **Receiver diagnostics** and use **Copy diagnostics** after each run. It includes the browser,
-camera settings, actual camera rate, processing latency, valid logical-frame rate, and ranked errors.
+Read **Transfer details** during a run. Expand **Optical quality** or **Camera performance** only when
+needed, then use **Copy full diagnostics** after each run. The copied report includes every section.
 
 - Sender device, browser, display brightness, and phase duration.
 - Receiver device, browser, chosen camera, automatic/manual acquisition, and contrast threshold.

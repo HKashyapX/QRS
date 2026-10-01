@@ -50,6 +50,11 @@ summary { cursor: pointer; font-weight: 700; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 10px; background: #06110e; color: #a7f3d0; font-size: 0.82rem; line-height: 1.55; }
 .advanced-controls { padding: 0 2px; }
 .control-note { margin: 10px 0 0; font-size: 0.9rem; }
+.safety-confirm { display: flex; align-items: center; gap: 9px; margin-top: 10px; color: #fff7d6; font-weight: 700; }
+.safety-confirm input { width: 18px; height: 18px; accent-color: #fbbf24; }
+.diagnostic-groups { margin-top: 18px; }
+.diagnostic-groups details { border-top: 1px solid #285449; padding-top: 12px; }
+.diagnostic-groups pre { margin-bottom: 8px; }
 
 @media (max-width: 560px) {
   main { width: min(100% - 20px, 960px); padding-top: 22px; }

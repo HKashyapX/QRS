@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Receive — QRS</title>
-  <link rel="stylesheet" href="styles.css?v=multilane-foundations-2">
+  <link rel="stylesheet" href="styles.css?v=multilane-foundations-4">
 </head>
 <body>
   <main>
@@ -20,6 +20,12 @@
           <select id="facingMode">
             <option value="environment">Rear camera</option>
             <option value="user">Front camera</option>
+          </select>
+        </label>
+        <label>Camera frame rate
+          <select id="cameraFrameRate">
+            <option value="30" selected>30 FPS — default</option>
+            <option value="60">60 FPS — experimental</option>
           </select>
         </label>
       </div>
@@ -44,15 +50,26 @@
       <progress id="progress" value="0" max="100"></progress>
       <div class="metrics"><span id="sessionMetric">Waiting for manifest</span><span id="frameMetric">0 valid frames</span><span id="confidenceMetric">No lock</span><span id="focusMetric">Focus: not started</span></div>
       <div class="actions"><a id="download" class="button" hidden>Download recovered file</a></div>
-      <details>
-        <summary>Receiver diagnostics</summary>
-        <pre id="diagnostics">No camera frames processed.</pre>
-        <button id="copyDiagnostics" class="secondary" type="button">Copy diagnostics</button>
-      </details>
+      <div class="diagnostic-groups">
+        <details open>
+          <summary>Transfer details</summary>
+          <pre id="transferDiagnostics">Waiting for a manifest.</pre>
+        </details>
+        <details>
+          <summary>Optical quality</summary>
+          <pre id="opticalDiagnostics">No optical frames processed.</pre>
+        </details>
+        <details>
+          <summary>Camera performance</summary>
+          <pre id="cameraDiagnostics">Camera not started.</pre>
+        </details>
+        <pre id="diagnostics" hidden>No camera frames processed.</pre>
+        <button id="copyDiagnostics" class="secondary" type="button">Copy full diagnostics</button>
+      </div>
     </section>
     <div class="matrix-shell"><canvas id="preview" width="640" height="640" aria-label="Camera preview and QRS alignment guide; tap the matrix to focus"></canvas></div>
     <video id="video" class="sr-only-video" playsinline muted></video>
   </main>
-  <script type="module" src="receiver.js?v=multilane-foundations-2"></script>
+  <script type="module" src="receiver.js?v=multilane-foundations-4"></script>
 </body>
 </html>
