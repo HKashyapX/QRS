@@ -1,6 +1,6 @@
 # QRS Two-Device Optical Test
 
-This procedure validates v0.2.0 shared-envelope dual-lane acquisition, mobile focus control,
+This procedure validates v0.2.1 shared-envelope dual-lane acquisition, mobile focus control,
 recovery-tail scheduling, and motion feedback. It does not validate encryption, colour symbols, or
 hostile lighting performance.
 
@@ -75,7 +75,8 @@ receiver completes.
 | Manifest locks but resolved count does not rise | Data frames fail CRC or session matching | Reduce glare, stabilize devices, and increase phase duration |
 | Final 10% resolves slowly | Remaining source symbols were erased and need a repeat or useful repair equation | Continue transmission and record source/repair plus duplicate-symbol diagnostics |
 | Cell contrast errors dominate | Exposure, focus, glare, or display PWM problem | Change distance/brightness and compare against the 67 ms reference |
-| Camera pixels/cell stays below 4 | Each lane is too small in the camera image | Move closer while keeping the full portrait guard visible, or compare single-lane mode |
+| Camera pixels/cell stays below 5 | Each lane is too small in the camera image | Move closer while keeping the full portrait guard visible, or compare single-lane mode |
+| Alignment retries rise with few recoveries | The tracked boundary is not the main failure | Improve focus, distance, glare, or phase duration instead of increasing retries |
 | Only one lane routes frames | One half of the envelope is blurred, cropped, or sampled at too few pixels/cell | Inspect per-lane locks/errors, change distance, and verify both pages selected dual lane |
 
 ## Test ladder

@@ -11,7 +11,7 @@ import {
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=dual-lane-acquisition-1";
+} from "./qrs-core.js?v=acquisition-refinement-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");

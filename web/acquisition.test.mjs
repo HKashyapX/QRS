@@ -9,6 +9,7 @@ import {
   projectPoint,
   quadCellSize,
   quadMotion,
+  scaleQuad,
   samplePerspectiveGrid,
   squareToQuad,
 } from "./acquisition.js";
@@ -24,6 +25,12 @@ import {
 assert.equal(quadCellSize([
   { x: 0, y: 0 }, { x: 700, y: 0 }, { x: 700, y: 700 }, { x: 0, y: 700 },
 ], 70), 10);
+assert.deepEqual(scaleQuad([
+  { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 },
+], 0.98), [
+  { x: 1, y: 1 }, { x: 99, y: 1 }, { x: 99, y: 99 }, { x: 1, y: 99 },
+]);
+assert.throws(() => scaleQuad([], 1), /four-point quad/);
 assert.deepEqual(previewPointToVideoPoint(
   { x: 320, y: 240 },
   { width: 640, height: 480 },

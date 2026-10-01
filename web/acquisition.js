@@ -29,6 +29,20 @@ export function quadCellSize(quad, cellsAcross) {
     / (4 * cellsAcross);
 }
 
+export function scaleQuad(quad, scale) {
+  if (!quad || quad.length !== 4 || !Number.isFinite(scale) || scale <= 0) {
+    throw new Error("A four-point quad and positive scale are required");
+  }
+  const centre = quad.reduce((result, point) => ({
+    x: result.x + point.x / quad.length,
+    y: result.y + point.y / quad.length,
+  }), { x: 0, y: 0 });
+  return quad.map((point) => ({
+    x: centre.x + (point.x - centre.x) * scale,
+    y: centre.y + (point.y - centre.y) * scale,
+  }));
+}
+
 export function previewPointToVideoPoint(point, canvasSize, videoSize) {
   if (!canvasSize.width || !canvasSize.height || !videoSize.width || !videoSize.height) {
     return { x: 0.5, y: 0.5 };

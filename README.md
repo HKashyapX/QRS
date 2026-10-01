@@ -21,10 +21,11 @@ from whichever fountain-coded symbols survived the camera channel.
 
 ## Project status
 
-The current release is **v0.2.0 — Dual-Lane Acquisition**. One camera frame and one tracked
-portrait envelope now feed two independent optical samplers and one shared recovery session.
-Single-lane compatibility remains available. It is not yet a high-speed or production-secure
-protocol.
+The current release is **v0.2.1 — Acquisition Refinement**. One camera frame and one tracked
+portrait envelope feed two independent optical samplers and one shared recovery session. The
+receiver now preserves the camera's portrait aspect instead of cropping it to a square, so both
+lanes retain more camera pixels. Single-lane compatibility remains available. It is not yet a
+high-speed or production-secure protocol.
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -39,11 +40,11 @@ protocol.
 | Encryption and sender authentication | Not implemented | Reserved protocol identifiers exist; captured footage is currently decodable |
 | Adaptive grid density | Planned | Intended to choose a safe matrix size from the measured optical channel |
 | Lane-aware framing and recovery | Implemented | CRC-protected lane identity; one decoder accepts symbols from every lane |
-| Dual-lane display and scanning | Experimental in v0.2.0 | Two visible matrices share capture, envelope tracking, and recovery |
+| Dual-lane display and scanning | Experimental in v0.2.1 | Two visible matrices share capture, envelope tracking, and recovery |
 | Colour symbols | Research track | Must be calibrated and measured before carrying file data |
 
 The long-term research objective is **150 kbps-class useful throughput** under suitable hardware and
-conditions. This is a target, not the performance of v0.2.0. Reaching it will require several
+conditions. This is a target, not the performance of v0.2.1. Reaching it will require several
 multipliers—better temporal signalling, denser adaptive grids, multiple spatial lanes, soft error
 recovery, and potentially calibrated colour modulation—rather than one isolated optimization.
 
@@ -196,7 +197,7 @@ The validated phone-camera baseline is now **50 ms/phase**. The transmitter expo
 sub-100 ms test ladder (67, 50, 40 and 33 ms/phase); slower compatibility modes are no longer part
 of the active optimization path.
 
-### v0.2.0 — Dual-lane optical acquisition (current)
+### v0.2.0 — Dual-lane optical acquisition (complete)
 
 The dual-lane mode places two independent matrices in one camera image. It uses one camera callback,
 one composite-envelope detection, and one shared projective subdivision—not two copied video feeds
@@ -219,6 +220,24 @@ Two lanes have a raw ceiling of 2× over one otherwise identical lane. The pract
 target remains at least 1.6× combined goodput without worse completion reliability or excessive
 frame processing time. This is now a field-test gate, not a claimed result. Gains beyond 2× require
 additional changes such as denser grids or richer optical symbols.
+
+### v0.2.1 — Acquisition refinement (current)
+
+The first v0.2.0 phone test exposed a geometry regression: a 720×1280 camera stream was centre-cropped
+into a 720×720 processing canvas. The two-lane envelope consequently averaged only 4.4 camera pixels
+per cell, marker lock fell to 43.4%, and only 13.8% of observed phase pairs were accepted.
+
+v0.2.1 addresses that measured bottleneck:
+
+- preserve the full camera aspect ratio and resize the manual fallback guide to the real frame;
+- increase envelope-detector precision while retaining tracked-quad reuse;
+- retry failed lane classification at narrowly inset and expanded quad boundaries;
+- identify insufficient pixels/cell and orientation geometry as optical bottlenecks before blaming
+  fountain recovery; and
+- retain the granted FPS value so a rejected 60 FPS request is explicit in copied diagnostics.
+
+The acceptance gate remains a controlled single-versus-dual comparison. A version bump does not
+claim a throughput multiplier until physical-device diagnostics demonstrate it.
 
 ### Later research
 
@@ -267,4 +286,4 @@ be specified before the encrypted mode is called secure.
   space for them.
 
 See [`docs/protocol-v0.md`](docs/protocol-v0.md) for the wire format and
-[`docs/v0.2.0-dual-lane-acquisition.md`](docs/v0.2.0-dual-lane-acquisition.md) for the current milestone rationale.
+[`docs/v0.2.1-acquisition-refinement.md`](docs/v0.2.1-acquisition-refinement.md) for the current milestone rationale.
