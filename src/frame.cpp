@@ -54,6 +54,29 @@ bool valid_frame_type(const std::uint8_t value) {
 
 }  // namespace
 
+std::uint16_t encode_lane_flags(const LaneMetadata metadata) {
+    if (metadata.lane_count == 0 || metadata.lane_count > 16) {
+        throw FrameError("lane count must be between 1 and 16");
+    }
+    if (metadata.lane_id >= metadata.lane_count) {
+        throw FrameError("lane ID must be smaller than lane count");
+    }
+    return static_cast<std::uint16_t>(metadata.lane_id) |
+           static_cast<std::uint16_t>((metadata.lane_count - 1U) << 4U);
+}
+
+LaneMetadata decode_lane_flags(const std::uint16_t flags) {
+    if ((flags & kLaneReservedMask) != 0) {
+        throw FrameError("reserved frame flag bits are non-zero");
+    }
+    const auto lane_id = static_cast<std::uint8_t>(flags & kLaneIdMask);
+    const auto lane_count = static_cast<std::uint8_t>(((flags & kLaneCountMask) >> 4U) + 1U);
+    if (lane_id >= lane_count) {
+        throw FrameError("lane ID must be smaller than lane count");
+    }
+    return LaneMetadata{lane_id, lane_count};
+}
+
 std::vector<std::uint8_t> serialize_frame(const Frame& frame) {
     if (frame.session_id == 0) {
         throw FrameError("session ID must be non-zero");

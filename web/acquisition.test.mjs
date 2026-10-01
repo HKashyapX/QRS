@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
   OrderedPhasePairer,
+  OpticalLane,
   OpticalTracker,
   detectOpticalQuad,
+  layoutLaneQuads,
   previewPointToVideoPoint,
   projectPoint,
   quadCellSize,
@@ -78,6 +80,13 @@ for (const [u, v, expected] of [[0, 0, skewed[0]], [1, 0, skewed[1]], [1, 1, ske
   assert.ok(distance(actual, expected) < 1e-6);
 }
 
+const verticalLanes = layoutLaneQuads(skewed, { rows: 2, columns: 1, gutter: 0.04 });
+assert.equal(verticalLanes.length, 2);
+assert.deepEqual(verticalLanes.map((lane) => lane.laneId), [0, 1]);
+assert.ok(quadMotion(verticalLanes[0].quad, verticalLanes[1].quad) > 0.2,
+  "derived lanes should occupy different parts of one tracked envelope");
+assert.throws(() => layoutLaneQuads(skewed, { rows: 5, columns: 4 }), /16-lane/);
+
 const fourCells = image(100, 100, 0);
 fillRect(fourCells, 0, 0, 50, 50, 30);
 fillRect(fourCells, 50, 0, 50, 50, 90);
@@ -86,6 +95,20 @@ fillRect(fourCells, 50, 50, 50, 50, 230);
 assert.deepEqual([...samplePerspectiveGrid(fourCells, [
   { x: 0, y: 0 }, { x: 99, y: 0 }, { x: 99, y: 99 }, { x: 0, y: 99 },
 ], 2)], [30, 90, 160, 230]);
+
+const lane0 = new OpticalLane({ laneId: 0 });
+const lane1 = new OpticalLane({ laneId: 1 });
+const lane0Samples = lane0.sample(fourCells, [
+  { x: 0, y: 0 }, { x: 99, y: 0 }, { x: 99, y: 99 }, { x: 0, y: 99 },
+], 2);
+assert.deepEqual([...lane0Samples], [30, 90, 160, 230]);
+assert.notEqual(lane0.sampleBuffer, lane1.sample(fourCells, [
+  { x: 0, y: 0 }, { x: 99, y: 0 }, { x: 99, y: 99 }, { x: 0, y: 99 },
+], 2), "each lane must own an independent reusable sample buffer");
+assert.equal(lane0.pairer.push({ inverted: false, contrast: 180, errors: 0 }).status, "armed");
+assert.equal(lane1.pairer.push({ inverted: true, contrast: 180, errors: 0 }).status, "orphan",
+  "one lane's phase A must never arm another lane's phase B");
+assert.equal(lane0.pairer.push({ inverted: true, contrast: 180, errors: 0 }).status, "candidate");
 
 const tracker = new OpticalTracker({ smoothing: 0.5, maxMisses: 1 });
 assert.ok(tracker.locate(frame));

@@ -6,6 +6,7 @@ export const CANVAS_GRID_SIZE = DISPLAY_GRID_SIZE + GUARD_CELLS * 2;
 export const FRAME_HEADER_SIZE = 22;
 export const FRAME_TRAILER_SIZE = 4;
 export const FRAME_TYPE = Object.freeze({ MANIFEST: 1, DATA: 2, END: 3 });
+export const MAX_OPTICAL_LANES = 16;
 export const FEC_CODEC = Object.freeze({ DETERMINISTIC_LT: 1, RAPTORQ: 2, DENSE_LT_GF2: 3 });
 export const CRYPTO_SUITE = Object.freeze({ NONE: 0, AES_256_GCM: 1, XCHACHA20_POLY1305: 2 });
 
@@ -13,6 +14,70 @@ const MAGIC = new Uint8Array([0x51, 0x52, 0x53, 0x30]);
 const VERSION = 0;
 const MASK64 = (1n << 64n) - 1n;
 const DENSE_REPAIR_FLAG = 0x80000000;
+const LANE_ID_MASK = 0x000f;
+const LANE_COUNT_MASK = 0x00f0;
+const LANE_RESERVED_MASK = 0xff00;
+
+export function encodeLaneFlags({ laneId = 0, laneCount = 1 } = {}) {
+  if (!Number.isInteger(laneCount) || laneCount < 1 || laneCount > MAX_OPTICAL_LANES) {
+    throw new Error("Lane count must be between 1 and 16");
+  }
+  if (!Number.isInteger(laneId) || laneId < 0 || laneId >= laneCount) {
+    throw new Error("Lane ID must be smaller than lane count");
+  }
+  return laneId | ((laneCount - 1) << 4);
+}
+
+export function decodeLaneFlags(flags = 0) {
+  if (!Number.isInteger(flags) || flags < 0 || flags > 0xffff) {
+    throw new Error("Frame flags must be an unsigned 16-bit integer");
+  }
+  if (flags & LANE_RESERVED_MASK) throw new Error("Reserved frame flag bits are non-zero");
+  const laneId = flags & LANE_ID_MASK;
+  const laneCount = ((flags & LANE_COUNT_MASK) >>> 4) + 1;
+  if (laneId >= laneCount) throw new Error("Lane ID must be smaller than lane count");
+  return { laneId, laneCount };
+}
+
+export class LaneFrameRouter {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.sessionId = null;
+    this.laneCount = null;
+    this.framesByLane = [];
+  }
+
+  accept(frame) {
+    const lane = decodeLaneFlags(frame.flags ?? 0);
+    let newSession = false;
+    if (this.sessionId === null || (frame.type === FRAME_TYPE.MANIFEST && frame.sessionId !== this.sessionId)) {
+      if (frame.type !== FRAME_TYPE.MANIFEST) {
+        return { accepted: false, reason: "waiting-for-manifest", ...lane };
+      }
+      this.sessionId = frame.sessionId;
+      this.laneCount = lane.laneCount;
+      this.framesByLane = Array(this.laneCount).fill(0);
+      newSession = true;
+    }
+    if (frame.sessionId !== this.sessionId) {
+      return { accepted: false, reason: "foreign-session", ...lane };
+    }
+    if (lane.laneCount !== this.laneCount) {
+      throw new Error("Optical lane count changed within the active session");
+    }
+    this.framesByLane[lane.laneId] += 1;
+    return { accepted: true, newSession, ...lane };
+  }
+
+  snapshot() {
+    return {
+      sessionId: this.sessionId,
+      laneCount: this.laneCount ?? 0,
+      framesByLane: [...this.framesByLane],
+    };
+  }
+}
 
 export function crc32c(bytes) {
   let crc = 0xffffffff;

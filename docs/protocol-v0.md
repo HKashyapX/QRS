@@ -33,7 +33,7 @@ All multi-byte integers use unsigned big-endian representation.
 | 0 | 4 | magic | ASCII `QRS0` |
 | 4 | 1 | version | Protocol version; currently `0` |
 | 5 | 1 | frame type | `1=MANIFEST`, `2=DATA`, `3=END` |
-| 6 | 2 | flags | Reserved; transmit as zero |
+| 6 | 2 | flags | Optical lane metadata; CRC-protected |
 | 8 | 8 | session ID | Random, non-zero identifier for one transfer |
 | 16 | 4 | symbol ID | FEC encoding-symbol identifier |
 | 20 | 2 | payload length | Number of payload octets |
@@ -41,7 +41,23 @@ All multi-byte integers use unsigned big-endian representation.
 | 22+N | 4 | CRC-32C | CRC over offsets `0..21+N` |
 
 Receivers must reject frames with incorrect magic, version, type, length, session ID, or CRC.
-Protocol v0 senders transmit all flag bits as zero.
+
+### 3.1 Optical lane flags
+
+The flags field prepares Protocol v0 for spatial multiplexing without changing the frame size:
+
+| Bits | Field | Encoding |
+|---:|---|---|
+| 0–3 | lane ID | Zero-based lane number, `0..15` |
+| 4–7 | lane count minus one | `0` means one lane; `1` means two lanes |
+| 8–15 | reserved | Must be zero |
+
+The lane ID must be smaller than the decoded lane count. Legacy flags value `0x0000` therefore
+means lane 0 of a one-lane session and remains byte-for-byte compatible with v0.1.5. All frames in
+one session must advertise the same lane count. Lane metadata is inside the CRC-protected header.
+
+Lane identity describes the optical source, not a separate FEC namespace. Symbol IDs remain global
+to the session, and valid symbols from every lane enter the same duplicate filter and decoder.
 
 CRC-32C uses the Castagnoli polynomial in reflected form (`0x82F63B78`), initial state
 `0xFFFFFFFF`, and final bitwise inversion. The check value for ASCII `123456789` is `0xE3069283`.
@@ -147,6 +163,8 @@ performs GF(2) elimination on the tail system and resumes peeling.
 - The receiver binds to one accepted manifest session.
 - Frames from other sessions are ignored.
 - Repeated symbol IDs within a session are ignored.
+- All accepted lanes in a session share the manifest, symbol-ID space, and recovery decoder.
+- A receiver may continue using healthy lanes when another lane is temporarily unreadable.
 - A later encrypted protocol revision may increase the session identifier width or bind it as AEAD
   additional authenticated data.
 

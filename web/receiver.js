@@ -4,19 +4,19 @@ import {
   DISPLAY_GRID_SIZE,
   GRID_SIZE,
   QUIET_CELLS,
+  LaneFrameRouter,
   LtDecoder,
   classifyOptical,
   decodeOpticalPair,
   parseManifest,
-} from "./qrs-core.js?v=mobile-optics-2";
+} from "./qrs-core.js?v=multilane-foundations-1";
 import {
+  OpticalLane,
   OpticalTracker,
-  OrderedPhasePairer,
   previewPointToVideoPoint,
   quadCellSize,
   quadMotion,
-  samplePerspectiveGrid,
-} from "./acquisition.js?v=mobile-optics-2";
+} from "./acquisition.js?v=multilane-foundations-1";
 
 const cameraButton = document.querySelector("#camera");
 const stopButton = document.querySelector("#stop");
@@ -57,7 +57,9 @@ let processingMaximum = 0;
 let lastDiagnosticsAt = -Infinity;
 let cameraSettings = "not started";
 let consecutiveMarkerFailures = 0;
-const phasePairer = new OrderedPhasePairer();
+const frameRouter = new LaneFrameRouter();
+const opticalLanes = [new OpticalLane({ laneId: 0 })];
+const singleLane = opticalLanes[0];
 let activeSession = null;
 let manifest = null;
 let decoder = null;
@@ -73,7 +75,6 @@ let focusIndicator = null;
 let focusIndicatorUntil = -Infinity;
 let automaticFocusRequested = false;
 const tracker = new OpticalTracker();
-const sampledCells = new Uint8Array(GRID_SIZE * GRID_SIZE);
 const counters = {
   sampled: 0,
   markerLocks: 0,
@@ -146,16 +147,16 @@ function drawVideoCover() {
   context.drawImage(video, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
 }
 
-function acquireGrid(now) {
+function captureCameraImage() {
   const captureStarted = performance.now();
   const image = context.getImageData(0, 0, canvas.width, canvas.height);
   counters.captureTime += performance.now() - captureStarted;
+  return image;
+}
+
+function acquireEnvelope(image, now) {
   if (!autoTrackInput.checked) {
-    const quad = manualQuad();
-    const samplingStarted = performance.now();
-    const cells = samplePerspectiveGrid(image, quad, GRID_SIZE, QUIET_CELLS, sampledCells);
-    counters.samplingTime += performance.now() - samplingStarted;
-    return { cells, quad, confidence: 1, stale: false };
+    return { quad: manualQuad(), confidence: 1, stale: false };
   }
   let acquisition = tracker.current();
   if (!acquisition || now - lastDetectionAt >= DETECTION_INTERVAL_MS) {
@@ -172,13 +173,20 @@ function acquireGrid(now) {
     throw new Error("Optical frame not found");
   }
   counters.acquisitions += 1;
+  return acquisition;
+}
+
+function sampleLane(image, acquisition, lane) {
   const samplingStarted = performance.now();
-  const cells = samplePerspectiveGrid(image, acquisition.quad, GRID_SIZE, QUIET_CELLS, sampledCells);
+  const cells = lane.sample(image, acquisition.quad, GRID_SIZE, QUIET_CELLS);
   counters.samplingTime += performance.now() - samplingStarted;
-  return {
-    ...acquisition,
-    cells,
-  };
+  return cells;
+}
+
+function acquireGrid(now, lane = singleLane) {
+  const image = captureCameraImage();
+  const acquisition = acquireEnvelope(image, now);
+  return { ...acquisition, cells: sampleLane(image, acquisition, lane), lane };
 }
 
 function drawGuide(now = performance.now(), quad = null) {
@@ -305,12 +313,14 @@ async function focusCameraAt(canvasPoint) {
 
 function acceptFrame(frame) {
   if (frame.type === FRAME_TYPE.MANIFEST) {
-    counters.manifests += 1;
     const nextManifest = parseManifest(frame.payload);
     if (![FEC_CODEC.DETERMINISTIC_LT, FEC_CODEC.DENSE_LT_GF2].includes(nextManifest.fecCodec)) {
       throw new Error("Unsupported FEC codec");
     }
-    if (activeSession !== frame.sessionId) {
+    const route = frameRouter.accept(frame);
+    if (!route.accepted) return;
+    counters.manifests += 1;
+    if (route.newSession) {
       activeSession = frame.sessionId;
       manifest = nextManifest;
       decoder = new LtDecoder(manifest);
@@ -322,7 +332,9 @@ function acceptFrame(frame) {
     }
     return;
   }
-  if (frame.type !== FRAME_TYPE.DATA || frame.sessionId !== activeSession || !decoder) return;
+  if (frame.type !== FRAME_TYPE.DATA || !decoder) return;
+  const route = frameRouter.accept(frame);
+  if (!route.accepted) return;
   counters.dataFrames += 1;
   if (frame.symbolId < decoder.sourceSymbolCount) counters.systematicDataFrames += 1;
   else counters.repairDataFrames += 1;
@@ -347,7 +359,7 @@ function acceptFrame(frame) {
   }
 }
 
-function processOpticalGrid(cells, acquisition) {
+function processOpticalGrid(lane, cells, acquisition) {
   counters.sampled += 1;
   const modulePixels = quadCellSize(acquisition.quad, DISPLAY_GRID_SIZE);
   counters.modulePixelsTotal += modulePixels;
@@ -368,7 +380,7 @@ function processOpticalGrid(cells, acquisition) {
   confidenceMetric.textContent = `Marker errors ${classification.errors} · contrast ${classification.contrast}`;
   if (classification.inverted) counters.phaseB += 1;
   else counters.phaseA += 1;
-  const pairing = phasePairer.push(classification, {
+  const pairing = lane.pairer.push(classification, {
     quad: acquisition.quad,
     capturedAt: performance.now(),
   });
@@ -395,7 +407,7 @@ function processOpticalGrid(cells, acquisition) {
       counters.acceptedWeakCells += frame.opticalWeakCells;
       counters.acceptedWeakCellsMaximum = Math.max(counters.acceptedWeakCellsMaximum, frame.opticalWeakCells);
       acceptFrame(frame);
-      phasePairer.complete();
+      lane.pairer.complete();
       validFrames += 1;
       if (pairing.attempt > 1) counters.recoveredAfterRetry += 1;
       frameMetric.textContent = `${validFrames} valid frames`;
@@ -435,6 +447,7 @@ function updateDiagnostics(force = false) {
     .slice(0, 4)
     .map(([message, count]) => `${count}× ${message}`)
     .join(" | ") || "none";
+  const laneSnapshot = frameRouter.snapshot();
   diagnosticsElement.textContent = [
     `camera frames/rate: ${counters.cameraFrames} / ${observedFps.toFixed(1)} fps`,
     `camera settings: ${cameraSettings}`,
@@ -464,6 +477,8 @@ function updateDiagnostics(force = false) {
       ? `${(counters.acceptedWeakCells / validFrames).toFixed(1)}/${counters.acceptedWeakCellsMaximum}`
       : "0/0"}`,
     `manifest/data frames: ${counters.manifests}/${counters.dataFrames}`,
+    `optical lanes configured/active: ${opticalLanes.length}/${laneSnapshot.laneCount || 1}`,
+    `routed frames by lane: ${laneSnapshot.framesByLane.join("/") || "0"}`,
     `accepted source/repair frames: ${counters.systematicDataFrames}/${counters.repairDataFrames}`,
     `unique/duplicate data symbols: ${counters.uniqueSymbols}/${counters.duplicateSymbols}`,
     `resolved symbols: ${decoder ? `${decoder.resolvedCount}/${decoder.sourceSymbolCount}` : "0/0"}`,
@@ -524,7 +539,7 @@ function processVideoFrame(now, metadata) {
         automaticFocusRequested = true;
         void focusCameraAt(quadCentre(acquisition.quad));
       }
-      processOpticalGrid(acquisition.cells, acquisition);
+      processOpticalGrid(acquisition.lane, acquisition.cells, acquisition);
     } catch (error) {
       counters.markerFailures += 1;
       consecutiveMarkerFailures += 1;
@@ -579,7 +594,8 @@ cameraButton.addEventListener("click", async () => {
 });
 
 function resetTransfer() {
-  phasePairer.reset();
+  opticalLanes.forEach((lane) => lane.reset());
+  frameRouter.reset();
   activeSession = null;
   manifest = null;
   decoder = null;
@@ -622,7 +638,7 @@ resetButton.addEventListener("click", resetTransfer);
 copyDiagnosticsButton.addEventListener("click", async () => {
   updateDiagnostics(true);
   const report = [
-    "QRS v0.1.5 mobile-optics diagnostics",
+    "QRS v0.1.6 multi-lane-foundations diagnostics",
     `captured: ${new Date().toISOString()}`,
     `browser: ${navigator.userAgent}`,
     diagnosticsElement.textContent,
@@ -637,13 +653,13 @@ copyDiagnosticsButton.addEventListener("click", async () => {
 });
 roiSizeInput.addEventListener("input", () => {
   roiValue.textContent = `${roiSizeInput.value} px`;
-  phasePairer.reset();
+  opticalLanes.forEach((lane) => lane.reset());
 });
 autoTrackInput.addEventListener("change", () => {
   roiSizeInput.disabled = autoTrackInput.checked;
   tracker.reset();
   activeQuad = null;
-  phasePairer.reset();
+  opticalLanes.forEach((lane) => lane.reset());
   status.textContent = autoTrackInput.checked
     ? "Automatic tracking enabled. Keep the complete white square and black surround in view."
     : "Manual fallback enabled. Align the outer white square inside the guide.";

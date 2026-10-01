@@ -46,6 +46,44 @@ void test_frame_round_trip_and_corruption_rejection() {
                                    "corrupted frame was accepted");
 }
 
+void test_lane_metadata_and_shared_decoder() {
+    require(qrs::decode_lane_flags(0) == qrs::LaneMetadata{0, 1},
+            "legacy zero flags did not map to one lane");
+    const auto lane_one_flags = qrs::encode_lane_flags(qrs::LaneMetadata{1, 2});
+    require(lane_one_flags == 0x11, "two-lane metadata encoding changed");
+    require(qrs::decode_lane_flags(lane_one_flags) == qrs::LaneMetadata{1, 2},
+            "two-lane metadata round trip failed");
+    require_throws<qrs::FrameError>(
+        [] { static_cast<void>(qrs::encode_lane_flags(qrs::LaneMetadata{2, 2})); },
+        "out-of-range lane ID was accepted");
+    require_throws<qrs::FrameError>([] { static_cast<void>(qrs::decode_lane_flags(0x0100)); },
+                                   "reserved lane flags were accepted");
+
+    std::vector<std::uint8_t> input(32 * 16);
+    for (std::size_t index = 0; index < input.size(); ++index) {
+        input[index] = static_cast<std::uint8_t>((index * 17U + 5U) & 0xffU);
+    }
+    constexpr std::uint64_t session_id = 0x2222333344445555ULL;
+    const qrs::LtEncoder encoder(input, 32);
+    qrs::LtDecoder decoder(encoder.parameters());
+    for (std::uint8_t lane_id = 0; lane_id < 2; ++lane_id) {
+        for (std::uint32_t symbol_id = lane_id; symbol_id < encoder.parameters().source_symbol_count;
+             symbol_id += 2) {
+            const qrs::Frame sent{qrs::FrameType::data,
+                                  qrs::encode_lane_flags(qrs::LaneMetadata{lane_id, 2}),
+                                  session_id,
+                                  symbol_id,
+                                  encoder.encode(symbol_id)};
+            const auto received = qrs::parse_frame(qrs::serialize_frame(sent));
+            require(qrs::decode_lane_flags(received.flags).lane_id == lane_id,
+                    "frame changed its optical lane");
+            decoder.add(received.symbol_id, received.payload);
+        }
+    }
+    require(decoder.complete(), "symbols from two lanes did not share one decoder");
+    require(decoder.recover() == input, "multi-lane decoder intake changed recovered bytes");
+}
+
 void test_manifest_round_trip_and_filename_safety() {
     qrs::Manifest manifest;
     manifest.object_size = 10000;
@@ -180,6 +218,7 @@ int main() {
     try {
         test_crc32c_vector();
         test_frame_round_trip_and_corruption_rejection();
+        test_lane_metadata_and_shared_decoder();
         test_manifest_round_trip_and_filename_safety();
         test_end_to_end_with_frame_loss();
         test_duplicate_symbol_rejection();

@@ -14,9 +14,10 @@ from whichever fountain-coded symbols survived the camera channel.
 
 ## Project status
 
-The current release is **v0.1.5 — Mobile Optics**. It supports working browser-to-browser,
-single-lane transfers and has completed real two-device tests. It is not yet a high-speed or
-production-secure protocol.
+The current release is **v0.1.6 — Multi-lane Foundations**. It preserves the working
+browser-to-browser single-lane transfer while making capture, optical-lane state, frame routing,
+and recovery ready for dual-lane experiments. It is not yet a high-speed or production-secure
+protocol.
 
 | Capability | Status | Notes |
 |---|---|---|
@@ -29,11 +30,12 @@ production-secure protocol.
 | Handheld acquisition | Experimental | Works, but motion, focus, glare, display PWM, and pixels per cell still affect throughput |
 | Encryption and sender authentication | Not implemented | Reserved protocol identifiers exist; captured footage is currently decodable |
 | Adaptive grid density | Planned | Intended to choose a safe matrix size from the measured optical channel |
-| Dual-lane scanning | Planned for v0.2.x | Two matrices in one camera frame, sharing capture and geometry tracking |
+| Lane-aware framing and recovery | Implemented | CRC-protected lane identity; one decoder accepts symbols from every lane |
+| Dual-lane display and scanning | Planned for v0.2.x | Two visible matrices sharing capture and geometry tracking |
 | Colour symbols | Research track | Must be calibrated and measured before carrying file data |
 
 The long-term research objective is **150 kbps-class useful throughput** under suitable hardware and
-conditions. This is a target, not the performance of v0.1.5. Reaching it will require several
+conditions. This is a target, not the performance of v0.1.6. Reaching it will require several
 multipliers—better temporal signalling, denser adaptive grids, multiple spatial lanes, soft error
 recovery, and potentially calibrated colour modulation—rather than one isolated optimization.
 
@@ -69,7 +71,7 @@ flowchart LR
 Because QRS is simplex, the transmitter never learns that reception completed. It continues
 transmitting until the receiving user stops it.
 
-## What v0.1.5 improved
+## What v0.1.5 and v0.1.6 improved
 
 The v0.1.x series moved the project from exact manual alignment toward practical mobile acquisition:
 
@@ -87,6 +89,17 @@ Real-device results vary substantially. A successful v0.1.5 field run reported c
 67 ms phase duration, but it also showed that marker acquisition and the display-to-camera optical
 channel—not file reconstruction alone—remain important bottlenecks. Treat a single phone/browser
 result as a diagnostic, not a universal benchmark.
+
+v0.1.6 adds the architectural boundary required for multiple optical regions without activating a
+second visible matrix yet:
+
+- Legacy frame flags `0` remain lane 0 of a one-lane session.
+- CRC-protected frame flags can identify up to 16 lanes and declare the session lane count.
+- Symbols from every lane share one session, global symbol-ID space, duplicate filter, and decoder.
+- Each optical lane owns independent sampling memory and A/B phase-pairing state.
+- Camera capture and shared envelope tracking are separated from per-lane sampling.
+- One projective envelope can be divided into row/column lane quadrilaterals for v0.2 experiments.
+- Diagnostics expose configured lanes, active session lanes, and routed frames per lane.
 
 ## Run the browser demo
 
@@ -139,19 +152,20 @@ camera, browser, or the optical acquisition pipeline.
 
 ## Development roadmap
 
-### v0.1.6 — Multi-lane foundations
+### v0.1.6 — Multi-lane foundations (current)
 
 This milestone keeps transmission single-lane while preparing the implementation for spatial
-multiplexing:
+multiplexing. The following foundations are implemented:
 
 - Separate shared camera capture/tracking from per-lane sampling and classification.
 - Introduce reusable per-lane phase-pairing state.
 - Extend development framing with protected lane identity and lane count.
 - Allow one recovery session to accept symbols from multiple lanes.
 - Generalize the acquisition envelope beyond a fixed square.
-- Add per-lane diagnostics, recorded-frame replay, and dual-lane simulation tests.
+- Add per-lane diagnostics and deterministic dual-lane intake tests.
 
-Compatibility with stable v0.1.5 single-lane behavior is an acceptance requirement.
+Legacy single-lane flags retain their original byte representation, and the browser remains in
+single-lane mode. Physical dual-lane throughput is therefore not claimed by v0.1.6.
 
 ### v0.2.x — Dual-lane optical acquisition
 
@@ -225,4 +239,4 @@ be specified before the encrypted mode is called secure.
   space for them.
 
 See [`docs/protocol-v0.md`](docs/protocol-v0.md) for the wire format and
-[`docs/v0.1.5-mobile-optics.md`](docs/v0.1.5-mobile-optics.md) for the current mobile-optics rationale.
+[`docs/v0.1.6-multilane-foundations.md`](docs/v0.1.6-multilane-foundations.md) for the current milestone rationale.

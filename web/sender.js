@@ -6,11 +6,12 @@ import {
   LtEncoder,
   OpticalTransmissionSchedule,
   drawOpticalMatrix,
+  encodeLaneFlags,
   encodeOpticalPhase,
   randomSessionId,
   safeFilename,
   serializeManifest,
-} from "./qrs-core.js?v=mobile-optics-1";
+} from "./qrs-core.js?v=multilane-foundations-1";
 
 const fileInput = document.querySelector("#file");
 const startButton = document.querySelector("#start");
@@ -81,6 +82,7 @@ startButton.addEventListener("click", async () => {
   const object = new Uint8Array(await selectedFile.arrayBuffer());
   const encoder = new LtEncoder(object, SYMBOL_SIZE);
   const sessionId = randomSessionId();
+  const laneFlags = encodeLaneFlags({ laneId: 0, laneCount: 1 });
   const manifestPayload = serializeManifest({
     objectSize: object.length,
     symbolSize: SYMBOL_SIZE,
@@ -90,11 +92,11 @@ startButton.addEventListener("click", async () => {
     sha256: new Uint8Array(32),
     filename: safeFilename(selectedFile.name),
   });
-  const manifestFrame = { type: FRAME_TYPE.MANIFEST, flags: 0, sessionId, symbolId: 0, payload: manifestPayload };
+  const manifestFrame = { type: FRAME_TYPE.MANIFEST, flags: laneFlags, sessionId, symbolId: 0, payload: manifestPayload };
   const schedule = new OpticalTransmissionSchedule(encoder.sourceSymbolCount);
   const scheduledFrame = (entry) => entry.type === "manifest" ? manifestFrame : {
     type: FRAME_TYPE.DATA,
-    flags: 0,
+    flags: laneFlags,
     sessionId,
     symbolId: entry.symbolId,
     payload: encoder.encode(entry.symbolId),

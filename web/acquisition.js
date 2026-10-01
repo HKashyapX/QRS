@@ -214,6 +214,47 @@ export function projectPoint(transform, u, v) {
   };
 }
 
+export function layoutLaneQuads(envelopeQuad, {
+  rows = 1,
+  columns = 1,
+  gutter = 0,
+} = {}) {
+  if (!Array.isArray(envelopeQuad) || envelopeQuad.length !== 4) {
+    throw new Error("An envelope must contain four corners");
+  }
+  if (!Number.isInteger(rows) || !Number.isInteger(columns) || rows < 1 || columns < 1) {
+    throw new Error("Lane layout dimensions must be positive integers");
+  }
+  if (rows * columns > 16) throw new Error("Lane layout exceeds the 16-lane protocol limit");
+  if (!Number.isFinite(gutter) || gutter < 0 || gutter >= 1) {
+    throw new Error("Lane gutter must be in the range [0, 1)");
+  }
+  const transform = squareToQuad(envelopeQuad);
+  const lanes = [];
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const halfGutterX = gutter / (2 * columns);
+      const halfGutterY = gutter / (2 * rows);
+      const left = column / columns + halfGutterX;
+      const right = (column + 1) / columns - halfGutterX;
+      const top = row / rows + halfGutterY;
+      const bottom = (row + 1) / rows - halfGutterY;
+      lanes.push({
+        laneId: row * columns + column,
+        row,
+        column,
+        quad: [
+          projectPoint(transform, left, top),
+          projectPoint(transform, right, top),
+          projectPoint(transform, right, bottom),
+          projectPoint(transform, left, bottom),
+        ],
+      });
+    }
+  }
+  return lanes;
+}
+
 const SAMPLING_LUTS = new Map();
 
 function samplingLut(gridSize, quietCells) {
@@ -324,6 +365,29 @@ export class OrderedPhasePairer {
       attempt: this.bAttempts,
       pairs: this.pendingA.map((phaseA) => [phaseA, observation]),
     };
+  }
+}
+
+export class OpticalLane {
+  constructor({ laneId = 0, maximumACandidates = 3 } = {}) {
+    if (!Number.isInteger(laneId) || laneId < 0 || laneId >= 16) {
+      throw new Error("Optical lane ID must be between 0 and 15");
+    }
+    this.laneId = laneId;
+    this.pairer = new OrderedPhasePairer({ maximumACandidates });
+    this.sampleBuffer = null;
+  }
+
+  reset() {
+    this.pairer.reset();
+  }
+
+  sample(imageData, quad, gridSize, quietCells = 0) {
+    const requiredSize = gridSize * gridSize;
+    if (!this.sampleBuffer || this.sampleBuffer.length !== requiredSize) {
+      this.sampleBuffer = new Uint8Array(requiredSize);
+    }
+    return samplePerspectiveGrid(imageData, quad, gridSize, quietCells, this.sampleBuffer);
   }
 }
 

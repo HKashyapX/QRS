@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import {
   FRAME_TYPE,
+  LaneFrameRouter,
   LtDecoder,
   LtEncoder,
   OpticalTransmissionSchedule,
   classifyOptical,
   crc32c,
   decodeOpticalPair,
+  decodeLaneFlags,
+  encodeLaneFlags,
   encodeOpticalPhase,
   parseFrame,
   serializeFrame,
@@ -27,6 +30,40 @@ const parsedFrame = parseFrame(serializeFrame(originalFrame));
 assert.equal(parsedFrame.sessionId, originalFrame.sessionId);
 assert.equal(parsedFrame.symbolId, originalFrame.symbolId);
 assert.deepEqual(parsedFrame.payload, originalFrame.payload);
+
+assert.deepEqual(decodeLaneFlags(0), { laneId: 0, laneCount: 1 },
+  "legacy zero flags must remain lane 0 of a single-lane session");
+assert.equal(encodeLaneFlags({ laneId: 1, laneCount: 2 }), 0x11);
+assert.deepEqual(decodeLaneFlags(0x11), { laneId: 1, laneCount: 2 });
+assert.throws(() => encodeLaneFlags({ laneId: 2, laneCount: 2 }), /lane ID/i);
+assert.throws(() => decodeLaneFlags(0x0002), /lane ID/i);
+assert.throws(() => decodeLaneFlags(0x0100), /reserved/i);
+
+const laneRouter = new LaneFrameRouter();
+const laneSession = 0x2222333344445555n;
+const routedManifest = laneRouter.accept({
+  type: FRAME_TYPE.MANIFEST,
+  flags: encodeLaneFlags({ laneId: 1, laneCount: 2 }),
+  sessionId: laneSession,
+});
+assert.equal(routedManifest.accepted, true);
+assert.equal(routedManifest.newSession, true);
+assert.equal(laneRouter.accept({
+  type: FRAME_TYPE.DATA,
+  flags: encodeLaneFlags({ laneId: 0, laneCount: 2 }),
+  sessionId: laneSession,
+}).accepted, true);
+assert.equal(laneRouter.accept({
+  type: FRAME_TYPE.DATA,
+  flags: encodeLaneFlags({ laneId: 0, laneCount: 2 }),
+  sessionId: laneSession + 1n,
+}).reason, "foreign-session");
+assert.throws(() => laneRouter.accept({
+  type: FRAME_TYPE.DATA,
+  flags: encodeLaneFlags({ laneId: 0, laneCount: 1 }),
+  sessionId: laneSession,
+}), /lane count/i);
+assert.deepEqual(laneRouter.snapshot().framesByLane, [1, 1]);
 
 const phaseA = encodeOpticalPhase(originalFrame, false);
 const phaseB = encodeOpticalPhase(originalFrame, true);
@@ -94,6 +131,23 @@ while (!decoder.complete && symbolId < 100000) {
 }
 assert.equal(decoder.complete, true);
 assert.deepEqual(decoder.recover(), input);
+
+const dualLaneDecoder = new LtDecoder(manifest);
+for (let laneId = 0; laneId < 2; laneId += 1) {
+  for (let sourceId = laneId; sourceId < encoder.sourceSymbolCount; sourceId += 2) {
+    const frame = parseFrame(serializeFrame({
+      type: FRAME_TYPE.DATA,
+      flags: encodeLaneFlags({ laneId, laneCount: 2 }),
+      sessionId: laneSession,
+      symbolId: sourceId,
+      payload: encoder.encode(sourceId),
+    }));
+    assert.equal(decodeLaneFlags(frame.flags).laneId, laneId);
+    dualLaneDecoder.add(frame.symbolId, frame.payload);
+  }
+}
+assert.equal(dualLaneDecoder.complete, true, "symbols from both lanes should share one decoder");
+assert.deepEqual(dualLaneDecoder.recover(), input);
 
 const vectorEncoder = new LtEncoder(Uint8Array.from({ length: 32 }, (_, index) => index), 4);
 assert.deepEqual(vectorEncoder.encode(8), new Uint8Array([4, 4, 4, 4]));
